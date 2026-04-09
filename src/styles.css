@@ -1,0 +1,595 @@
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Network Lab: full-viewport stage; canvas is full-bleed; dock clearance applies to top controls only */
+.network-lab-root {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: #070a12;
+  --nl-dock-rail-offset: 8px;
+  --nl-dock-toggle-w: 40px;
+  --nl-dock-collapsed-gap: 12px;
+  --nl-dock-clear-open: min(492px, calc(36vw + 68px));
+  --nl-dock-clear-collapsed: calc(
+    var(--nl-dock-rail-offset) + var(--nl-dock-toggle-w) + var(--nl-dock-collapsed-gap)
+  );
+  /* Dock rail max-width + top overlay `right` stay in sync (canvas does not shrink). */
+  --nl-dock-motion-duration: 0.44s;
+  --nl-dock-motion-ease: cubic-bezier(0.45, 0.02, 0.55, 1);
+  --nl-top-menu-size: 44px; /* NetworkLabSection NL_TOP_MENU_PX must match */
+  /* Top-left of ☰ (.network-lab-top-menu-floating uses top/left 10px) — pane margin matches; scale shrinks up/left from here */
+  --nl-top-hamburger-origin-x: 10px;
+  --nl-top-hamburger-origin-y: 10px;
+  /* Top panel: vertical leg (scaleY) then horizontal (scaleX); fade ~80% into horizontal leg */
+  --nl-top-pane-v-dur: 0.34s;
+  --nl-top-pane-content-fade-out: 0.14s;
+  --nl-top-pane-h-dur: 0.32s;
+  --nl-top-pane-ease-out: cubic-bezier(0.33, 1, 0.68, 1);
+  --nl-top-pane-ease-in: cubic-bezier(0.32, 0, 0.67, 0);
+  --nl-top-pane-fade-dur: 0.2s;
+  --nl-top-pane-fade-delay-collapse: calc(var(--nl-top-pane-v-dur) + 0.8 * var(--nl-top-pane-h-dur));
+  --nl-top-pane-visibility-delay-collapse: calc(
+    var(--nl-top-pane-v-dur) + var(--nl-top-pane-h-dur) + var(--nl-top-pane-fade-dur)
+  );
+}
+
+.network-lab-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.network-lab-canvas-wrap {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  border: none;
+  border-radius: 0;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  box-sizing: border-box;
+}
+
+.network-lab-canvas-wrap svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.network-lab-overlay-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 25;
+  pointer-events: none;
+  box-sizing: border-box;
+  transition: right var(--nl-dock-motion-duration) var(--nl-dock-motion-ease);
+}
+
+/* Top controls / “main pane” only — stays left of logs & properties dock + Logs tab */
+.network-lab-overlay-top--dock-open {
+  right: var(--nl-dock-clear-open);
+}
+
+.network-lab-overlay-top--dock-collapsed {
+  right: var(--nl-dock-clear-collapsed);
+}
+
+/* ☰ sits outside the glass panel (no clipping / no “inside the box” look) */
+.network-lab-top-menu-floating {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  width: var(--nl-top-menu-size, 44px);
+  height: var(--nl-top-menu-size, 44px);
+  margin: 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 229, 255, 0.42);
+  background: rgba(10, 14, 26, 0.92);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow:
+    0 6px 28px rgba(0, 0, 0, 0.55),
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  color: #00e5ff;
+  cursor: pointer;
+  line-height: 1;
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.88);
+  visibility: hidden;
+  transition:
+    opacity 0.14s ease,
+    transform 0.16s ease,
+    visibility 0s linear 0.14s;
+}
+
+.network-lab-overlay-top--menu-floating-visible .network-lab-top-menu-floating {
+  pointer-events: auto;
+  opacity: 1;
+  transform: scale(1);
+  visibility: visible;
+  transition:
+    opacity 0.2s ease 0.02s,
+    transform 0.22s ease 0.02s,
+    visibility 0s linear 0s;
+}
+
+.network-lab-top-menu-floating:hover {
+  background: rgba(18, 26, 44, 0.96);
+  border-color: rgba(0, 229, 255, 0.55);
+}
+
+.network-lab-top-menu-floating:focus-visible {
+  outline: 2px solid #00e5ff;
+  outline-offset: 3px;
+}
+
+.network-lab-top-menu-icon {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.network-lab-overlay-top .network-lab-overlay-panel {
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  padding-left: 14px;
+  padding-right: 14px;
+  width: 100%;
+}
+
+/* Wraps the glass panel (outside .network-lab-overlay-panel) so scale targets the whole card. */
+.network-lab-top-pane-anim {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* scaleY / scaleX on wrappers outside the panel so border, shadow, and blur scale with content. */
+.network-lab-top-panel-scale-y,
+.network-lab-top-panel-scale-x {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  transform-origin: var(--nl-top-hamburger-origin-x) var(--nl-top-hamburger-origin-y);
+}
+
+.network-lab-top-pane-anim--expanded .network-lab-top-panel-scale-y {
+  transform: scaleY(1);
+  transition: transform var(--nl-top-pane-v-dur) var(--nl-top-pane-ease-out) var(--nl-top-pane-h-dur);
+}
+
+.network-lab-top-pane-anim--expanded .network-lab-top-panel-scale-x {
+  transform: scaleX(1);
+  transition: transform var(--nl-top-pane-h-dur) var(--nl-top-pane-ease-out) 0s;
+}
+
+/* --nl-top-collapse-sx / --nl-top-collapse-sy set in JS from measured panel vs --nl-top-menu-size (44px) */
+.network-lab-top-pane-anim--collapsed .network-lab-top-panel-scale-y {
+  transform: scaleY(var(--nl-top-collapse-sy, 0.1));
+  transition: transform var(--nl-top-pane-v-dur) var(--nl-top-pane-ease-in) 0s;
+}
+
+.network-lab-top-pane-anim--collapsed .network-lab-top-panel-scale-x {
+  transform: scaleX(var(--nl-top-collapse-sx, 0.1));
+  transition: transform var(--nl-top-pane-h-dur) var(--nl-top-pane-ease-in) var(--nl-top-pane-v-dur);
+}
+
+.network-lab-overlay-panel--top-expanded {
+  max-width: none;
+  min-width: 0;
+  max-height: min(46vh, 420px);
+  opacity: 1;
+  visibility: visible;
+  transition:
+    max-height calc(var(--nl-top-pane-v-dur) + var(--nl-top-pane-h-dur)) var(--nl-top-pane-ease-out),
+    padding-top var(--nl-top-pane-v-dur) var(--nl-top-pane-ease-out),
+    padding-bottom var(--nl-top-pane-v-dur) var(--nl-top-pane-ease-out),
+    padding-left var(--nl-top-pane-h-dur) var(--nl-top-pane-ease-out) var(--nl-top-pane-v-dur),
+    padding-right var(--nl-top-pane-h-dur) var(--nl-top-pane-ease-out) var(--nl-top-pane-v-dur),
+    margin var(--nl-top-pane-v-dur) var(--nl-top-pane-ease-out) var(--nl-top-pane-h-dur),
+    opacity var(--nl-top-pane-fade-dur) ease var(--nl-top-pane-h-dur),
+    visibility 0s linear 0s,
+    border-color 0.26s ease var(--nl-top-pane-h-dur),
+    background 0.26s ease var(--nl-top-pane-h-dur),
+    box-shadow 0.26s ease var(--nl-top-pane-h-dur),
+    backdrop-filter 0.3s ease calc(var(--nl-top-pane-h-dur) * 0.5),
+    -webkit-backdrop-filter 0.3s ease calc(var(--nl-top-pane-h-dur) * 0.5);
+}
+
+.network-lab-overlay-panel--top-collapsed {
+  max-height: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  opacity: 0;
+  overflow: hidden !important;
+  pointer-events: none;
+  visibility: hidden;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: blur(0) !important;
+  -webkit-backdrop-filter: blur(0) !important;
+  background: transparent !important;
+  transition:
+    max-height calc(var(--nl-top-pane-v-dur) + var(--nl-top-pane-h-dur)) var(--nl-top-pane-ease-in),
+    padding-top var(--nl-top-pane-v-dur) var(--nl-top-pane-ease-in) 0s,
+    padding-bottom var(--nl-top-pane-v-dur) var(--nl-top-pane-ease-in) 0s,
+    padding-left var(--nl-top-pane-h-dur) var(--nl-top-pane-ease-in) var(--nl-top-pane-v-dur),
+    padding-right var(--nl-top-pane-h-dur) var(--nl-top-pane-ease-in) var(--nl-top-pane-v-dur),
+    margin var(--nl-top-pane-v-dur) var(--nl-top-pane-ease-in) 0s,
+    opacity var(--nl-top-pane-fade-dur) ease var(--nl-top-pane-fade-delay-collapse),
+    visibility 0s linear var(--nl-top-pane-visibility-delay-collapse),
+    border-color var(--nl-top-pane-fade-dur) ease var(--nl-top-pane-fade-delay-collapse),
+    background var(--nl-top-pane-fade-dur) ease var(--nl-top-pane-fade-delay-collapse),
+    box-shadow var(--nl-top-pane-fade-dur) ease var(--nl-top-pane-fade-delay-collapse),
+    backdrop-filter var(--nl-top-pane-fade-dur) ease var(--nl-top-pane-fade-delay-collapse),
+    -webkit-backdrop-filter var(--nl-top-pane-fade-dur) ease var(--nl-top-pane-fade-delay-collapse);
+}
+
+.network-lab-top-panel-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  opacity: 1;
+  max-height: 4000px;
+  visibility: visible;
+}
+
+/* Hide tabs/buttons before scale squishes them; fade back in partway through expand */
+.network-lab-top-pane-anim--expanded .network-lab-top-panel-main {
+  opacity: 1;
+  transition: opacity 0.28s var(--nl-top-pane-ease-out)
+    calc(var(--nl-top-pane-h-dur) + var(--nl-top-pane-v-dur) * 0.22);
+}
+
+.network-lab-top-pane-anim--collapsed .network-lab-top-panel-main {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--nl-top-pane-content-fade-out) var(--nl-top-pane-ease-in) 0s;
+}
+
+.network-lab-top-panel-header {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.network-lab-top-panel-header-text {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.network-lab-top-collapse-btn {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.04);
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.network-lab-top-collapse-btn:hover {
+  border-color: rgba(0, 229, 255, 0.35);
+  color: #e2e8f0;
+}
+
+.network-lab-top-collapse-btn:focus-visible {
+  outline: 2px solid #00e5ff;
+  outline-offset: 2px;
+}
+
+.network-lab-top-collapse-label {
+  font-weight: 600;
+}
+
+.network-lab-top-panel-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/*
+ * Dock rail: clip with max-width so only the toggle stays visible when collapsed.
+ * (Whole-rail translateX pushed the toggle past the viewport because the rail is right-aligned.)
+ */
+.network-lab-dock-rail {
+  --network-lab-dock-toggle: var(--nl-dock-toggle-w, 40px);
+  position: absolute;
+  top: 8px;
+  right: var(--nl-dock-rail-offset, 8px);
+  bottom: 8px;
+  z-index: 30;
+  display: flex;
+  justify-content: flex-end;
+  max-width: min(480px, calc(100vw - 24px));
+  overflow: hidden;
+  pointer-events: none;
+  box-sizing: border-box;
+  transition: max-width var(--nl-dock-motion-duration) var(--nl-dock-motion-ease);
+}
+
+.network-lab-dock-rail-inner {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex-shrink: 0;
+  height: 100%;
+  min-height: 0;
+  pointer-events: auto;
+}
+
+.network-lab-dock-rail--collapsed {
+  max-width: var(--network-lab-dock-toggle);
+}
+
+/* When collapsed, panel is clipped — give the tab a full border */
+.network-lab-dock-rail--collapsed .network-lab-dock-edge-toggle {
+  border-left: 1px solid rgba(0, 229, 255, 0.28);
+  border-radius: 12px;
+}
+
+.network-lab-overlay-right {
+  position: relative;
+  width: min(428px, 36vw);
+  min-width: 280px;
+  flex: 0 0 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+}
+
+.network-lab-dock-edge-toggle {
+  flex: 0 0 var(--network-lab-dock-toggle);
+  width: var(--network-lab-dock-toggle);
+  min-width: var(--network-lab-dock-toggle);
+  align-self: stretch;
+  margin: 0;
+  padding: 6px 2px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  border: 1px solid rgba(0, 229, 255, 0.28);
+  border-left: none;
+  border-radius: 0 12px 12px 0;
+  background: rgba(6, 10, 18, 0.96);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #00e5ff;
+  cursor: pointer;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    4px 0 24px rgba(0, 0, 0, 0.45);
+}
+
+.network-lab-dock-edge-toggle:hover {
+  background: rgba(12, 20, 36, 0.98);
+  border-color: rgba(0, 229, 255, 0.45);
+}
+
+.network-lab-dock-edge-toggle:focus-visible {
+  outline: 2px solid #00e5ff;
+  outline-offset: 2px;
+}
+
+.network-lab-dock-edge-toggle-chevron {
+  font-size: 16px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.network-lab-dock-edge-toggle-label {
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
+  text-align: center;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+.network-lab-dock-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(6, 10, 18, 0.94);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 229, 255, 0.22);
+  border-right: none;
+  border-radius: 12px 0 0 12px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.4),
+    0 16px 48px rgba(0, 0, 0, 0.65);
+  overflow: hidden;
+}
+
+.network-lab-dock-title {
+  flex-shrink: 0;
+  padding: 12px 14px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #00e5ff;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  letter-spacing: 0.02em;
+}
+
+.network-lab-dock-sub {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 6px 14px 10px;
+  font-size: 10px;
+  color: #94a3b8;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  line-height: 1.45;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.network-lab-overlay-right .network-lab-side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  padding: 10px 10px 12px;
+}
+
+.network-lab-overlay-right .network-lab-topology-log {
+  flex-shrink: 0;
+  max-height: min(220px, 26vh);
+  background: rgba(12, 18, 30, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px 12px;
+  overflow-y: auto;
+}
+
+.network-lab-overlay-right .network-lab-props-sim-stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.network-lab-overlay-right .network-lab-props-sim-stack > .network-lab-props-col,
+.network-lab-overlay-right .network-lab-props-sim-stack > .network-lab-sim-col {
+  min-width: 0;
+  width: 100%;
+}
+
+.network-lab-sim-log-inner {
+  background: rgba(10, 14, 24, 0.95);
+  border-radius: 10px;
+  padding: 12px 14px;
+  max-height: min(38vh, 380px);
+  overflow-y: auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.network-lab-sim-placeholder {
+  padding: 20px 14px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  line-height: 1.55;
+  background: rgba(10, 14, 24, 0.88);
+  border: 1px dashed rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+}
+
+.network-lab-zoom-toolbar {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: auto;
+  z-index: 12;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.network-lab-zoom-hint {
+  position: absolute;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 11;
+  max-width: min(100% - 24px, min(420px, 100vw - 500px));
+  pointer-events: none;
+  text-align: center;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.9);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .network-lab-dock-rail,
+  .network-lab-overlay-top,
+  .network-lab-overlay-top--dock-open,
+  .network-lab-overlay-top--dock-collapsed,
+  .network-lab-overlay-panel--top-expanded,
+  .network-lab-overlay-panel--top-collapsed,
+  .network-lab-top-panel-scale-y,
+  .network-lab-top-panel-scale-x,
+  .network-lab-top-panel-main,
+  .network-lab-top-menu-floating,
+  .network-lab-overlay-top--menu-floating-visible .network-lab-top-menu-floating {
+    transition: none !important;
+    transition-delay: 0s !important;
+  }
+}
+
+@media (max-width: 900px) {
+  .network-lab-root {
+    --nl-dock-clear-open: min(400px, calc(100vw - 40px));
+    --nl-dock-collapsed-gap: 8px;
+  }
+
+  .network-lab-overlay-right {
+    width: min(100% - 16px, 340px);
+    min-width: 240px;
+  }
+
+  .network-lab-zoom-hint {
+    display: none;
+  }
+}
