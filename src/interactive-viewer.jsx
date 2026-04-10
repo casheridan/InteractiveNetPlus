@@ -1,16 +1,49 @@
 import { useState, useCallback, useMemo, useEffect, useRef, createContext, useContext } from "react";
 import { OSISection, AppliancesSection } from "./sections/fundamentals";
 import { ALL_SECTIONS, SECTION_ICONS } from "./constants/navigation";
+import { Pill, Card, Badge, InfoRow, SectionHeader, FrameDiagram, TableView } from "./components/primitives";
+import { DeepDiveContent, ExpandableDeepDive } from "./components/ExpandableDeepDive";
+import { getDeepDiveForLabDeviceType } from "./data/fundamentalsData";
 
 // ─── Constant Data ───────────────────────────────────────────────────────────
 
 const PORTS_PROTOCOLS = [
-  { name: "FTP", ports: "20 (data), 21 (control)", transport: "TCP", desc: "File Transfer Protocol — transfers files. Unencrypted. Active mode uses port 20 for data; passive mode uses random high port." },
+  { name: "FTP", ports: "20 (data), 21 (control)", transport: "TCP", desc: "File Transfer Protocol — transfers files. Unencrypted. Active mode uses port 20 for data; passive mode uses random high port.",
+    deepDive: {
+      sections: [
+        { title: "Control vs data channels", body: "Port 21 carries commands (USER, PASS, LIST, RETR). Port 20 was traditionally used for active-mode data from the server back to the client; in practice passive mode is common on modern networks because firewalls and NAT block inbound client connections." },
+        { title: "Active vs passive (exam pattern)", body: ["Active: server initiates data connection from port 20 toward a client port the client advertises — often blocked by client-side firewalls.", "Passive: client opens data connection to a random high port the server advertises in PASV — works better through NAT.", "SFTP/SCP over SSH (port 22) replaces FTP when encryption is required."] },
+      ],
+      diagram: { type: "ascii", lines: ["  Client                          Server", "    |---- USER/PASS (21) -------->|", "    |<--- 220/230 responses ------|", "    |---- PASV ------------------>|", "    |<--- 227 (h,i,j,k,p1,p2) ----|   ← passive port", "    |======== data (high port) ====>|"] },
+      resources: [{ label: "Wikipedia — FTP", href: "https://en.wikipedia.org/wiki/File_Transfer_Protocol" }],
+    },
+  },
   { name: "SFTP", ports: "22", transport: "TCP", desc: "SSH File Transfer Protocol — secure file transfer over SSH tunnel. Encrypts both commands and data." },
-  { name: "SSH", ports: "22", transport: "TCP", desc: "Secure Shell — encrypted remote CLI access. Replaces Telnet. Used for secure device management." },
+  { name: "SSH", ports: "22", transport: "TCP", desc: "Secure Shell — encrypted remote CLI access. Replaces Telnet. Used for secure device management.",
+    deepDive: {
+      sections: [
+        { title: "What SSH gives you", body: "Confidentiality and integrity via symmetric encryption after a key exchange (often Diffie–Hellman family), server authentication (host keys), and optional client public-key authentication. One TCP connection multiplexes channels (shell, SFTP, port forwarding)." },
+        { title: "Keys & fingerprints", body: "First connect prompts to trust the server host key fingerprint — protects against MITM if verified out-of-band. Authorized public keys on the server (~/.ssh/authorized_keys) allow passwordless login." },
+      ],
+      resources: [
+        { label: "RFC 4253 — SSH Transport", href: "https://www.rfc-editor.org/rfc/rfc4253" },
+        { label: "Wikipedia — Secure Shell", href: "https://en.wikipedia.org/wiki/Secure_Shell" },
+      ],
+    },
+  },
   { name: "Telnet", ports: "23", transport: "TCP", desc: "Unencrypted remote CLI access. INSECURE — sends credentials in plaintext. Use SSH instead." },
   { name: "SMTP", ports: "25, 587 (submission)", transport: "TCP", desc: "Simple Mail Transfer Protocol — sends email between servers. Port 587 for authenticated submission with STARTTLS." },
-  { name: "DNS", ports: "53", transport: "TCP & UDP", desc: "Domain Name System — resolves names to IPs. UDP for queries <512 bytes; TCP for zone transfers and large responses." },
+  { name: "DNS", ports: "53", transport: "TCP & UDP", desc: "Domain Name System — resolves names to IPs. UDP for queries <512 bytes; TCP for zone transfers and large responses.",
+    deepDive: {
+      sections: [
+        { title: "UDP vs TCP on 53", body: "Typical stub resolver queries fit in UDP datagrams. TCP is used when responses exceed legacy size limits, for zone transfers (AXFR/IXFR), and increasingly for operational policy. DNSSEC responses can be larger — watch for truncation (TC bit) triggering TCP retry." },
+        { title: "Record types to know", body: ["A / AAAA — IPv4 / IPv6 address.", "CNAME — alias; target must not be used with other data at same owner.", "MX — mail exchanger with preference.", "PTR — reverse DNS (in-addr.arpa / ip6.arpa)."] },
+      ],
+      resources: [
+        { label: "IANA — DNS RRTYPEs", href: "https://www.iana.org/assignments/dns-parameters/dns-parameters.xhtml" },
+      ],
+    },
+  },
   { name: "DHCP", ports: "67 (server), 68 (client)", transport: "UDP", desc: "Dynamic Host Configuration Protocol — auto-assigns IP config. DORA process: Discover → Offer → Request → Acknowledge." },
   { name: "HTTP", ports: "80", transport: "TCP", desc: "HyperText Transfer Protocol — unencrypted web traffic. Stateless request/response protocol." },
   { name: "HTTPS", ports: "443", transport: "TCP", desc: "HTTP Secure — encrypted web traffic using TLS. Provides confidentiality, integrity, and authentication via certificates (PKI)." },
@@ -25,14 +58,38 @@ const PORTS_PROTOCOLS = [
 ];
 
 const TRAFFIC_TYPES = [
-  { name: "Unicast", icon: "➡️", desc: "One-to-one communication. A single source sends data to a single specific destination. Most common traffic type.", example: "Your computer loading a web page from a server." },
-  { name: "Broadcast", icon: "📢", desc: "One-to-all communication within a broadcast domain. Sent to all devices on the local network segment. Uses broadcast address (255.255.255.255 or subnet broadcast). Limited to L2 domain — routers do NOT forward broadcasts.", example: "ARP request: 'Who has 192.168.1.1? Tell 192.168.1.100'" },
+  { name: "Unicast", icon: "➡️", desc: "One-to-one communication. A single source sends data to a single specific destination. Most common traffic type.", example: "Your computer loading a web page from a server.",
+    deepDive: {
+      sections: [
+        { title: "L2 vs L3 addressing", body: "On Ethernet, frames carry a unicast destination MAC when the next hop is known (from ARP or cached neighbor). IP packets carry unicast source/destination addresses; routers rewrite L2 headers hop by hop while L3 addresses usually stay the same end-to-end (except NAT boundaries)." },
+      ],
+      resources: [{ label: "Wikipedia — Unicast", href: "https://en.wikipedia.org/wiki/Unicast" }],
+    },
+  },
+  { name: "Broadcast", icon: "📢", desc: "One-to-all communication within a broadcast domain. Sent to all devices on the local network segment. Uses broadcast address (255.255.255.255 or subnet broadcast). Limited to L2 domain — routers do NOT forward broadcasts.", example: "ARP request: 'Who has 192.168.1.1? Tell 192.168.1.100'",
+    deepDive: {
+      sections: [
+        { title: "Why routers block broadcasts", body: "Broadcasts would explode across the entire internet if forwarded. Routers terminate broadcast domains — DHCP Discover, ARP, and some discovery protocols stay local unless relayed (e.g. DHCP helper) or encapsulated." },
+        { title: "Directed vs limited broadcast", body: "Directed broadcast to subnet (e.g. 192.168.1.255) is often filtered on modern networks for security. Limited broadcast 255.255.255.255 stays on the local link." },
+      ],
+      diagram: { type: "ascii", lines: ["  Host A  ----broadcast---->  Switch  ----floods----> all ports in VLAN"] },
+      resources: [{ label: "Wikipedia — Broadcast (networking)", href: "https://en.wikipedia.org/wiki/Broadcasting_(networking)" }],
+    },
+  },
   { name: "Multicast", icon: "📡", desc: "One-to-many communication to a group of interested receivers. Uses Class D addresses (224.0.0.0 – 239.255.255.255). Devices must join the multicast group (IGMP). More efficient than broadcast for group communication.", example: "IPTV streaming to subscribed users, OSPF routing updates (224.0.0.5)." },
   { name: "Anycast", icon: "🎯", desc: "One-to-nearest communication. Multiple servers share the same IP address. Network routes traffic to the topologically closest server. Used primarily in IPv6 and CDN/DNS infrastructure.", example: "DNS root servers — multiple servers worldwide share the same anycast IP." }
 ];
 
 const CABLE_TYPES = [
-  { name: "Cat5e", type: "Copper UTP", speed: "1 Gbps", distance: "100m", connector: "RJ45", desc: "Enhanced Category 5. Most common for basic Gigabit Ethernet." },
+  { name: "Cat5e", type: "Copper UTP", speed: "1 Gbps", distance: "100m", connector: "RJ45", desc: "Enhanced Category 5. Most common for basic Gigabit Ethernet.",
+    deepDive: {
+      sections: [
+        { title: "When Cat5e is enough", body: "1000BASE-T on Cat5e supports 1 Gbps to 100 m per TIA/EIA standards. It is not rated for 10GBASE-T at 100 m — use Cat6 or Cat6a for 10G copper runs (distance depends on category and implementation)." },
+        { title: "Installation gotchas", body: ["Keep bend radius within spec; kinks increase return loss.", "Use the same wiring standard (T568A or B) end-to-end.", "Avoid running parallel to power beyond NEC/EMC guidance to reduce interference."] },
+      ],
+      resources: [{ label: "Wikipedia — Category 5 cable", href: "https://en.wikipedia.org/wiki/Category_5_cable" }],
+    },
+  },
   { name: "Cat6", type: "Copper UTP/STP", speed: "10 Gbps (55m)", distance: "100m (1G) / 55m (10G)", connector: "RJ45", desc: "Better crosstalk protection. Supports 10G at shorter distances." },
   { name: "Cat6a", type: "Copper STP", speed: "10 Gbps", distance: "100m", connector: "RJ45", desc: "Augmented Cat6. Full 10G at 100m. Thicker shielded cable." },
   { name: "Cat7", type: "Copper STP", speed: "10 Gbps", distance: "100m", connector: "GG45/TERA", desc: "Individually shielded pairs. Not TIA/EIA recognized." },
@@ -67,6 +124,34 @@ const TOPOLOGIES = [
   { name: "Spine-and-Leaf", desc: "Modern data center topology. Every leaf switch connects to every spine switch. No leaf-to-leaf or spine-to-spine links. Consistent hop count.", pros: "Predictable latency, easy to scale, no STP needed", cons: "Requires many cables, all spine-to-leaf" },
   { name: "Three-Tier", desc: "Traditional enterprise: Core → Distribution → Access. Core handles fast transport, Distribution handles policy/routing, Access connects endpoints.", pros: "Scalable, hierarchical, role separation", cons: "More devices, higher latency than collapsed" },
   { name: "Collapsed Core", desc: "Combines Core and Distribution into one tier. Two tiers: Core/Distribution + Access. Used in smaller networks.", pros: "Lower cost, simpler, fewer devices", cons: "Less scalable than three-tier" }
+];
+
+/** Printed by: help | ? | show commands */
+const CLI_CHEATSHEET_LINES = [
+  "=== Network Lab CLI — cheatsheet ===",
+  "",
+  "Discovery:",
+  "  help | ? | show commands   — this list",
+  "",
+  "Show (state):",
+  "  show mac address-table",
+  "  show arp",
+  "  show ip route",
+  "  show ip dhcp binding",
+  "  show ip interface brief",
+  "  show interfaces trunk",
+  "  show ip nat translations",
+  "  show access-lists",
+  "  show interfaces switchport <switchId|label>",
+  "",
+  "Configure (topology):",
+  "  set access vlan <switch> <portId> <vlan>",
+  "  set trunk vlans <switch> <portId> <vlanCsv>   (e.g. 10,20,30)",
+  "  set trunk native <switch> <portId> <vlan>",
+  "  set default route <routerId|label> <nextHopIp>",
+  "  set nat <routerId|label> on|off",
+  "",
+  "Notes: <switch> and <router> match node id or label (case-insensitive).",
 ];
 
 const CLOUD_CONCEPTS = {
@@ -279,55 +364,6 @@ const SEGMENTATION = [
 ];
 
 // ─── Section definitions ───────────────────────────────────────────────────
-// ─── Components ──────────────────────────────────────────────────────────────
-
-const Pill = ({children, active, onClick, color}) => (
-  <button onClick={onClick} style={{
-    padding: "6px 14px", borderRadius: 20, border: `1.5px solid ${active ? color || "#00e5ff" : "rgba(255,255,255,0.15)"}`,
-    background: active ? `${color || "#00e5ff"}22` : "rgba(255,255,255,0.04)",
-    color: active ? color || "#00e5ff" : "#94a3b8", cursor: "pointer", fontSize: 13, fontFamily: "'JetBrains Mono', monospace",
-    transition: "all 0.2s", fontWeight: active ? 600 : 400, whiteSpace: "nowrap"
-  }}>{children}</button>
-);
-
-const Card = ({children, title, color, onClick, style}) => (
-  <div onClick={onClick} style={{
-    background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 12,
-    padding: "18px 20px", cursor: onClick ? "pointer" : "default", transition: "all 0.25s",
-    borderLeft: color ? `3px solid ${color}` : undefined, ...style,
-    ...(onClick ? {} : {})
-  }}
-  onMouseEnter={e => { if(onClick) { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.borderColor = color || "rgba(255,255,255,0.2)"; }}}
-  onMouseLeave={e => { if(onClick) { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; e.currentTarget.style.borderColor = "rgba(255,255,255,0.08)"; }}}
-  >
-    {title && <div style={{ fontSize: 14, fontWeight: 700, color: color || "#e2e8f0", marginBottom: 8, fontFamily: "'JetBrains Mono', monospace" }}>{title}</div>}
-    {children}
-  </div>
-);
-
-const Badge = ({children, color}) => (
-  <span style={{
-    display: "inline-block", padding: "2px 8px", borderRadius: 6, background: `${color}22`,
-    color, fontSize: 11, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace", marginRight: 6
-  }}>{children}</span>
-);
-
-const InfoRow = ({label, value}) => (
-  <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", fontSize: 13 }}>
-    <span style={{ color: "#64748b" }}>{label}</span>
-    <span style={{ color: "#cbd5e1", textAlign: "right", maxWidth: "60%" }}>{value}</span>
-  </div>
-);
-
-const SectionHeader = ({icon, title, subtitle}) => (
-  <div style={{ marginBottom: 24 }}>
-    <div style={{ fontSize: 26, fontWeight: 800, color: "#f1f5f9", fontFamily: "'Space Mono', monospace", display: "flex", alignItems: "center", gap: 12 }}>
-      <span style={{ fontSize: 28 }}>{icon}</span> {title}
-    </div>
-    {subtitle && <div style={{ fontSize: 13, color: "#64748b", marginTop: 6, lineHeight: 1.6 }}>{subtitle}</div>}
-  </div>
-);
-
 // ─── Section Renderers ───────────────────────────────────────────────────────
 
 function PortsSection() {
@@ -346,6 +382,11 @@ function PortsSection() {
               <Badge color="#38bdf8">{p.transport}</Badge>
             </div>
             <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>{p.desc}</div>
+            {p.deepDive && (
+              <ExpandableDeepDive label="Deep dive" accentColor="#a78bfa">
+                <DeepDiveContent deepDive={p.deepDive} accentColor="#a78bfa" />
+              </ExpandableDeepDive>
+            )}
           </Card>
         ))}
       </div>
@@ -364,6 +405,11 @@ function TrafficSection() {
             <div style={{ fontSize: 11, color: "#fbbf24", padding: "8px 10px", background: "rgba(251,191,36,0.08)", borderRadius: 6 }}>
               <strong>Example:</strong> {t.example}
             </div>
+            {t.deepDive && (
+              <ExpandableDeepDive label="Deep dive" accentColor="#fbbf24">
+                <DeepDiveContent deepDive={t.deepDive} accentColor="#fbbf24" />
+              </ExpandableDeepDive>
+            )}
           </Card>
         ))}
       </div>
@@ -391,6 +437,11 @@ function CablingSection() {
               </div>
               <InfoRow label="Connector" value={c.connector} />
               <div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.5, marginTop: 6 }}>{c.desc}</div>
+              {c.deepDive && (
+                <ExpandableDeepDive label="Deep dive" accentColor="#10b981">
+                  <DeepDiveContent deepDive={c.deepDive} accentColor="#10b981" />
+                </ExpandableDeepDive>
+              )}
             </Card>
           ))}
         </div>
@@ -932,6 +983,34 @@ const CABLE_OPTIONS = [
   { type: "console", label: "Console Cable", color: "#6b7280", speed: "OOB", maxLen: 3, desc: "Out-of-band management (rollover)" },
 ];
 
+const PORT_LAYOUT_BY_DEVICE = {
+  pc: { panel: "Endpoint NIC", pattern: ["ethernet"] },
+  laptop: { panel: "Endpoint NIC", pattern: ["ethernet"] },
+  server: { panel: "Server I/O", pattern: ["ethernet", "ethernet", "sfp"] },
+  switch: { panel: "Access Switch", pattern: ["ethernet", "ethernet", "ethernet", "ethernet", "ethernet", "ethernet", "sfp", "sfp"] },
+  l3switch: { panel: "Core Switch", pattern: ["ethernet", "ethernet", "ethernet", "ethernet", "ethernet", "ethernet", "sfp", "sfp"] },
+  router: { panel: "Router Chassis", pattern: ["ethernet", "ethernet", "sfp", "sfp"] },
+  firewall: { panel: "Firewall", pattern: ["ethernet", "ethernet", "sfp", "console"] },
+  wap: { panel: "Wireless AP", pattern: ["ethernet"] },
+  internet: { panel: "WAN Cloud Edge", pattern: ["fiber"] },
+  ids: { panel: "IDS/IPS", pattern: ["ethernet", "ethernet", "sfp"] },
+  lb: { panel: "Load Balancer", pattern: ["ethernet", "ethernet", "sfp", "sfp"] },
+  dhcp: { panel: "DHCP Appliance", pattern: ["ethernet"] },
+  dns: { panel: "DNS Appliance", pattern: ["ethernet"] },
+};
+
+const CABLE_PORT_COMPAT = {
+  cat5e: new Set(["ethernet"]),
+  cat6: new Set(["ethernet"]),
+  cat6a: new Set(["ethernet"]),
+  smf: new Set(["fiber", "sfp"]),
+  mmf: new Set(["fiber", "sfp"]),
+  coax: new Set(["coax"]),
+  dac: new Set(["dac", "sfp"]),
+  wireless: new Set(["wireless"]),
+  console: new Set(["console", "serial"]),
+};
+
 const FAULT_SCENARIOS = [
   { id: "duplex", name: "Duplex Mismatch", icon: "⚡", color: "#ef4444",
     desc: "One side is full-duplex, the other is half-duplex. Causes late collisions, CRC errors, and dramatically reduced throughput. Auto-negotiation failed or was overridden on one end.",
@@ -1034,6 +1113,85 @@ function deterministicApipaForEndpoint(endpointId) {
   return `169.254.${a}.${b}`;
 }
 
+function parseIPv4Int(ip) {
+  const p = String(ip || "").split(".").map(Number);
+  if (p.length !== 4 || p.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return null;
+  return (((p[0] << 24) >>> 0) + ((p[1] << 16) >>> 0) + ((p[2] << 8) >>> 0) + (p[3] >>> 0)) >>> 0;
+}
+
+function sameSubnetIPv4(ipA, maskA, ipB, maskB) {
+  const a = parseIPv4Int(ipA);
+  const b = parseIPv4Int(ipB);
+  const mA = parseIPv4Int(maskA);
+  const mB = parseIPv4Int(maskB);
+  if (a === null || b === null || mA === null || mB === null) return null;
+  return (a & mA) === (b & mA) && (a & mB) === (b & mB);
+}
+
+function prefixLenFromMask(mask) {
+  const v = parseIPv4Int(mask);
+  if (v === null) return 0;
+  let n = v >>> 0;
+  let c = 0;
+  while (n & 0x80000000) {
+    c += 1;
+    n = (n << 1) >>> 0;
+  }
+  return c;
+}
+
+function cidrContains(ip, netIp, mask) {
+  const a = parseIPv4Int(ip);
+  const b = parseIPv4Int(netIp);
+  const m = parseIPv4Int(mask);
+  if (a === null || b === null || m === null) return false;
+  return (a & m) === (b & m);
+}
+
+function defaultPortsForNode(node) {
+  const type = node?.type;
+  const layout = PORT_LAYOUT_BY_DEVICE[type] || { pattern: ["ethernet"] };
+  const portCount = Math.max(1, Number(node?.portCount || node?.ports?.length || node?.ports || layout.pattern.length || 1));
+  return Array.from({ length: portCount }, (_, i) => {
+    const kind = layout.pattern[i % layout.pattern.length] || "ethernet";
+    const isSwitchLike = type === "switch" || type === "l3switch";
+    const defaultId =
+      kind === "sfp" ? `SFP${i + 1}`
+      : kind === "fiber" ? `Fo0/${i + 1}`
+      : kind === "console" ? "Console0"
+      : isSwitchLike ? `Gi0/${i + 1}`
+      : `Eth${i}`;
+    return {
+      id: defaultId,
+      label: defaultId,
+      kind,
+      speedCaps: kind === "sfp" || kind === "fiber" ? ["10G", "40G", "100G"] : ["10M", "100M", "1G", "10G"],
+      mode: isSwitchLike ? (i >= portCount - 2 ? "trunk" : "access") : undefined,
+      accessVlan: node?.vlan || 1,
+      allowedVlans: Array.isArray(node?.trunkAllowedVlans) && node.trunkAllowedVlans.length ? node.trunkAllowedVlans : [node?.vlan || 1],
+      nativeVlan: 1,
+      status: "up",
+    };
+  });
+}
+
+function normalizePorts(node) {
+  const existing = Array.isArray(node?.ports) && node.ports.length > 0 ? node.ports : defaultPortsForNode(node);
+  const defaultAccessVlan = node?.accessVlanDefault || node?.vlan || 1;
+  return existing.map((p, idx) => ({
+    id: p.id || (node?.type === "switch" || node?.type === "l3switch" ? `Gi0/${idx + 1}` : `eth${idx}`),
+    label: p.label || p.id || (node?.type === "switch" || node?.type === "l3switch" ? `Gi0/${idx + 1}` : `eth${idx}`),
+    kind: p.kind || "ethernet",
+    speedCaps: Array.isArray(p.speedCaps) && p.speedCaps.length ? p.speedCaps : ["10M", "100M", "1G", "10G"],
+    status: p.status || "up",
+    allowedVlansDraft: typeof p.allowedVlansDraft === "string" ? p.allowedVlansDraft : undefined,
+    mode: p.mode || ((node?.type === "switch" || node?.type === "l3switch") ? "access" : undefined),
+    accessVlan: p.accessVlan || defaultAccessVlan,
+    allowedVlans: Array.isArray(p.allowedVlans) && p.allowedVlans.length ? p.allowedVlans : (Array.isArray(node?.trunkAllowedVlans) ? node.trunkAllowedVlans : [node?.vlan || 1]),
+    nativeVlan: p.nativeVlan || 1,
+  }));
+}
+
 let _nodeId = 0;
 let _linkId = 0;
 function nextNodeId() { return `n${++_nodeId}`; }
@@ -1077,6 +1235,7 @@ function NetworkLabSection() {
   const [dragging, setDragging] = useState(null);
   const [dragOffset, setDragOffset] = useState({x:0,y:0});
   const [connecting, setConnecting] = useState(null);
+  const [connectDraft, setConnectDraft] = useState(null);
   const [cableType, setCableType] = useState("cat6a");
   const [simRunning, setSimRunning] = useState(false);
   const [simLog, setSimLog] = useState([]);
@@ -1085,11 +1244,20 @@ function NetworkLabSection() {
   const [faultDetail, setFaultDetail] = useState(null);
   const [simSource, setSimSource] = useState(null);
   const [simDest, setSimDest] = useState(null);
+  const [simUseCustomIp, setSimUseCustomIp] = useState(false);
+  const [simCustomIp, setSimCustomIp] = useState("");
   const [simProtocol, setSimProtocol] = useState("HTTPS");
   const [tab, setTab] = useState("build");
   const animRef = useRef(null);
   const [tick, setTick] = useState(0);
   const [topologyLog, setTopologyLog] = useState([]);
+  const [cliInput, setCliInput] = useState("");
+  const [cliOutput, setCliOutput] = useState(["Network CLI ready. Type help or ? for all commands."]);
+  const [routerVlanDrafts, setRouterVlanDrafts] = useState({});
+  const [arpTable, setArpTable] = useState([]);
+  const [natTranslations, setNatTranslations] = useState([]);
+  const [aclCounters, setAclCounters] = useState({});
+  const [camTable, setCamTable] = useState([]);
   const [labCanvas, setLabCanvas] = useState({ w: LAB_DEFAULT_W, h: LAB_DEFAULT_H });
   const labCanvasRef = useRef(labCanvas);
   useEffect(() => { labCanvasRef.current = labCanvas; }, [labCanvas]);
@@ -1103,10 +1271,33 @@ function NetworkLabSection() {
   const panLastRef = useRef(null);
   const [dockOpen, setDockOpen] = useState(false);
   const [topBarOpen, setTopBarOpen] = useState(true);
+  const [labInfoDeviceType, setLabInfoDeviceType] = useState(null);
   /** Must match --nl-top-menu-size in styles.css (☰ target size for collapse scale). */
   const NL_TOP_MENU_PX = 44;
   const topPaneAnimRef = useRef(null);
   const topOverlayPanelRef = useRef(null);
+
+  const getPortDiagram = useCallback((node) => {
+    const ports = normalizePorts(node);
+    const panel = PORT_LAYOUT_BY_DEVICE[node?.type]?.panel || "Port Panel";
+    return { panel, ports };
+  }, []);
+
+  const isPortOccupied = useCallback((nodeId, portId) => {
+    return links.some((l) => (l.from === nodeId && l.fromPort === portId) || (l.to === nodeId && l.toPort === portId));
+  }, [links]);
+
+  const isPortCableCompatible = useCallback((port, cable) => {
+    const allow = CABLE_PORT_COMPAT[cable] || new Set(["ethernet"]);
+    return allow.has(port?.kind || "ethernet");
+  }, []);
+
+  const portCompatibilityReason = useCallback((port, cable) => {
+    if (!port) return "Port not found";
+    if (isPortOccupied(connectDraft?.fromId, port.id) || isPortOccupied(connectDraft?.toId, port.id)) return "Port already in use";
+    if (!isPortCableCompatible(port, cable)) return `${cable.toUpperCase()} not supported on ${port.kind}`;
+    return "";
+  }, [connectDraft, isPortCableCompatible, isPortOccupied]);
 
   const openTopBar = useCallback(() => {
     topPaneAnimRef.current?.style.removeProperty("--nl-top-collapse-sx");
@@ -1216,8 +1407,82 @@ function NetworkLabSection() {
     return false;
   }, []);
 
+  const getEndpointEffectiveVlan = useCallback((endpoint, allNodes, allLinks) => {
+    if (!endpoint) return 1;
+    const linksUp = allLinks.filter((l) => l.status === "up" && (l.from === endpoint.id || l.to === endpoint.id));
+    for (const l of linksUp) {
+      const peerId = l.from === endpoint.id ? l.to : l.from;
+      const peer = allNodes.find((n) => n.id === peerId);
+      if (!peer) continue;
+      const peerIsSwitch = peer.type === "switch" || peer.type === "l3switch";
+      if (!peerIsSwitch) continue;
+      const peerPortId = l.from === peerId ? l.fromPort : l.toPort;
+      const peerPort = normalizePorts(peer).find((p) => p.id === peerPortId);
+      if (peerPort?.mode === "access") return peerPort.accessVlan || peer.accessVlanDefault || peer.vlan || 1;
+      if (peerPort?.mode === "trunk") return peerPort.nativeVlan || endpoint.vlan || 1;
+    }
+    return endpoint.vlan || 1;
+  }, []);
+
+  const hasVlanCompliantPath = useCallback((fromId, toId, vlan, allNodes, allLinks) => {
+    const nodeById = new Map(allNodes.map((n) => [n.id, n]));
+    const linkByPair = new Map();
+    const adj = {};
+    allNodes.forEach((n) => { adj[n.id] = []; });
+    allLinks.forEach((l) => {
+      if (l.status !== "up") return;
+      adj[l.from]?.push(l.to);
+      adj[l.to]?.push(l.from);
+      linkByPair.set(`${l.from}|${l.to}`, l);
+      linkByPair.set(`${l.to}|${l.from}`, l);
+    });
+    const q = [fromId];
+    const seen = new Set([fromId]);
+    while (q.length) {
+      const cur = q.shift();
+      if (cur === toId) return true;
+      for (const nxt of adj[cur] || []) {
+        if (seen.has(nxt)) continue;
+        const curNode = nodeById.get(cur);
+        const nxtNode = nodeById.get(nxt);
+        const link = linkByPair.get(`${cur}|${nxt}`);
+        const curIsSwitch = curNode?.type === "switch" || curNode?.type === "l3switch";
+        const nxtIsSwitch = nxtNode?.type === "switch" || nxtNode?.type === "l3switch";
+        if (curIsSwitch || nxtIsSwitch) {
+          const curDb = Array.isArray(curNode?.switchVlans) ? curNode.switchVlans : [curNode?.vlan || 1];
+          const nxtDb = Array.isArray(nxtNode?.switchVlans) ? nxtNode.switchVlans : [nxtNode?.vlan || 1];
+          if (curIsSwitch && !curDb.includes(vlan)) continue;
+          if (nxtIsSwitch && !nxtDb.includes(vlan)) continue;
+
+          // Trunk allowed VLAN checks should apply only on transit uplinks
+          // (switch<->switch or switch<->router/L3), not host access links.
+          const curIsTransitPeer = curNode?.type === "switch" || curNode?.type === "l3switch" || curNode?.type === "router";
+          const nxtIsTransitPeer = nxtNode?.type === "switch" || nxtNode?.type === "l3switch" || nxtNode?.type === "router";
+          const isTransitLink = curIsTransitPeer && nxtIsTransitPeer;
+          if (isTransitLink) {
+            const curPortId = link ? (link.from === cur ? link.fromPort : link.toPort) : null;
+            const nxtPortId = link ? (link.from === nxt ? link.fromPort : link.toPort) : null;
+            const curPort = curIsSwitch ? normalizePorts(curNode).find((p) => p.id === curPortId) : null;
+            const nxtPort = nxtIsSwitch ? normalizePorts(nxtNode).find((p) => p.id === nxtPortId) : null;
+            const curAllowed = curPort?.mode === "trunk"
+              ? (Array.isArray(curPort.allowedVlans) && curPort.allowedVlans.length ? curPort.allowedVlans : [curPort.nativeVlan || 1])
+              : (Array.isArray(curNode?.trunkAllowedVlans) ? curNode.trunkAllowedVlans : [curNode?.vlan || 1]);
+            const nxtAllowed = nxtPort?.mode === "trunk"
+              ? (Array.isArray(nxtPort.allowedVlans) && nxtPort.allowedVlans.length ? nxtPort.allowedVlans : [nxtPort.nativeVlan || 1])
+              : (Array.isArray(nxtNode?.trunkAllowedVlans) ? nxtNode.trunkAllowedVlans : [nxtNode?.vlan || 1]);
+            if (curIsSwitch && !curAllowed.includes(vlan)) continue;
+            if (nxtIsSwitch && !nxtAllowed.includes(vlan)) continue;
+          }
+        }
+        seen.add(nxt);
+        q.push(nxt);
+      }
+    }
+    return false;
+  }, []);
+
   const autoconfigureEndpointOnLink = useCallback((endpoint, allNodes, allLinks) => {
-    const endpointVlan = endpoint.vlan || 1;
+    const endpointVlan = getEndpointEffectiveVlan(endpoint, allNodes, allLinks);
 
     const nodeOffersDhcp = (n) => {
       if (!n) return false;
@@ -1228,6 +1493,7 @@ function NetworkLabSection() {
     const dhcpProviders = allNodes.filter((n) => {
       if (!nodeOffersDhcp(n)) return false;
       if (!hasPath(endpoint.id, n.id, allNodes, allLinks)) return false;
+      if (!hasVlanCompliantPath(endpoint.id, n.id, endpointVlan, allNodes, allLinks)) return false;
       if (n.type === "router" || n.type === "l3switch") {
         const ifaces = normalizeRouterInterfaces(n);
         return ifaces.some((i) => (i.vlan || 1) === endpointVlan);
@@ -1286,16 +1552,17 @@ function NetworkLabSection() {
     return {
       updated,
       events: [
-        { type: "proto", msg: `📡 ${endpoint.label || endpoint.type}: DHCP Discover (VLAN ${endpointVlan})` },
+        { type: "proto", msg: `📡 ${endpoint.label || endpoint.type}: DHCPDISCOVER (VLAN ${endpointVlan})` },
         { type: "proto", msg: `📨 DHCPOFFER from ${reachableDhcp.label || reachableDhcp.type} (${iface.ip})` },
+        { type: "proto", msg: `📤 DHCPREQUEST for ${updated.ip}` },
         { type: "proto", msg: `✅ DHCPACK: leased ${updated.ip}/${updated.subnet}, gateway ${updated.gateway}` },
       ],
     };
-  }, [hasPath, normalizeRouterInterfaces]);
+  }, [getEndpointEffectiveVlan, hasPath, hasVlanCompliantPath, normalizeRouterInterfaces]);
 
   const labDhcpTopologySig = useMemo(() => {
     const linkKey = links
-      .map((l) => `${l.from}-${l.to}`)
+      .map((l) => `${l.from}-${l.to}:${l.status}:${l.fromPort || ""}:${l.toPort || ""}`)
       .sort()
       .join(";");
     const nodeKey = nodes
@@ -1308,7 +1575,10 @@ function NetworkLabSection() {
           n.type === "router" || n.type === "l3switch"
             ? JSON.stringify(n.routerInterfaces || [])
             : "";
-        return `I:${n.id}:${n.type}:v${n.vlan ?? 1}:ip${n.ip ?? ""}:${svc}:${rif}`;
+        const sw = n.type === "switch" || n.type === "l3switch"
+          ? `${JSON.stringify(n.switchVlans || [])}:${JSON.stringify(n.trunkAllowedVlans || [])}:${JSON.stringify(n.ports || [])}`
+          : "";
+        return `I:${n.id}:${n.type}:v${n.vlan ?? 1}:ip${n.ip ?? ""}:${svc}:${rif}:${sw}`;
       })
       .sort()
       .join("|");
@@ -1356,8 +1626,13 @@ function NetworkLabSection() {
       managed: tmpl.type === "switch" ? true : undefined,
       switchVlans: tmpl.type === "switch" ? [1] : undefined,
       trunkAllowedVlans: tmpl.type === "switch" ? [1] : undefined,
+      accessVlanDefault: tmpl.type === "switch" ? 1 : undefined,
+      portCount: tmpl.ports || 1,
       routerMode: isRoutingTemplate ? "subinterfaces" : undefined,
       routerInterfaces: isRoutingTemplate ? [{ name: "G0/0.1", ip: defaultIP, subnet: "255.255.255.0", vlan: 1 }] : undefined,
+      staticRoutes: isRoutingTemplate ? [] : undefined,
+      defaultRoute: isRoutingTemplate ? "" : undefined,
+      ports: normalizePorts({ type: tmpl.type, vlan: 1, trunkAllowedVlans: [1] }),
       stp: tmpl.type === "switch" || tmpl.type === "l3switch" ? "enabled" : "n/a",
       duplex: "auto",
       speed: "auto",
@@ -1385,12 +1660,23 @@ function NetworkLabSection() {
     if (simDest === id) setSimDest(null);
   }, [selectedNode, simSource, simDest]);
 
-  const addLink = useCallback((fromId, toId) => {
+  const addLink = useCallback((fromId, toId, selectedFromPort = null, selectedToPort = null) => {
     if (fromId === toId) return;
     if (links.some(l => (l.from === fromId && l.to === toId) || (l.from === toId && l.to === fromId))) return;
     const cable = CABLE_OPTIONS.find(c => c.type === cableType);
+    const fromNode = nodes.find((n) => n.id === fromId);
+    const toNode = nodes.find((n) => n.id === toId);
+    const fromPorts = normalizePorts(fromNode);
+    const toPorts = normalizePorts(toNode);
+    const usedFrom = new Set(links.filter((l) => l.from === fromId).map((l) => l.fromPort).concat(links.filter((l) => l.to === fromId).map((l) => l.toPort)));
+    const usedTo = new Set(links.filter((l) => l.from === toId).map((l) => l.fromPort).concat(links.filter((l) => l.to === toId).map((l) => l.toPort)));
+    const autoFrom = (fromPorts.find((p) => !usedFrom.has(p.id)) || fromPorts[0] || { id: "eth0" }).id;
+    const autoTo = (toPorts.find((p) => !usedTo.has(p.id)) || toPorts[0] || { id: "eth0" }).id;
+    const fromPort = selectedFromPort || autoFrom;
+    const toPort = selectedToPort || autoTo;
     const newLink = {
       id: nextLinkId(), from: fromId, to: toId,
+      fromPort, toPort,
       cable: cable.type, cableLabel: cable.label, cableColor: cable.color,
       speed: cable.speed, maxLen: cable.maxLen, length: Math.floor(Math.random()*80)+5,
       status: "up"
@@ -1399,8 +1685,24 @@ function NetworkLabSection() {
     setLinks(linksAfter);
     const a = nodes.find((n) => n.id === fromId);
     const b = nodes.find((n) => n.id === toId);
-    pushTopologyLog({ type: "wire", msg: `🔌 Link up: ${a?.label || a?.type || fromId} ↔ ${b?.label || b?.type || toId} (${newLink.cableLabel}, ${newLink.speed}).` });
+    pushTopologyLog({ type: "wire", msg: `🔌 Link up: ${a?.label || a?.type || fromId}(${fromPort}) ↔ ${b?.label || b?.type || toId}(${toPort}) (${newLink.cableLabel}, ${newLink.speed}).` });
   }, [links, cableType, nodes, pushTopologyLog]);
+
+  const startPortSelectionForLink = useCallback((fromId, toId) => {
+    const fromNode = nodes.find((n) => n.id === fromId);
+    const toNode = nodes.find((n) => n.id === toId);
+    if (!fromNode || !toNode) return;
+    const fromPorts = normalizePorts(fromNode);
+    const toPorts = normalizePorts(toNode);
+    const fromSingle = fromPorts.length <= 1;
+    const toSingle = toPorts.length <= 1;
+    setConnectDraft({
+      fromId,
+      toId,
+      sourcePort: fromSingle ? fromPorts[0]?.id : null,
+      destPort: toSingle ? toPorts[0]?.id : null,
+    });
+  }, [nodes]);
 
   const removeLink = useCallback((id) => {
     setLinks(prev => prev.filter(l => l.id !== id));
@@ -1428,7 +1730,7 @@ function NetworkLabSection() {
       const dx = mx - n.x, dy = my - n.y;
       if (Math.abs(dx) < 32 && Math.abs(dy) < 32) {
         if (connecting) {
-          addLink(connecting, n.id);
+          startPortSelectionForLink(connecting, n.id);
           setConnecting(null);
           setDockOpen(true);
           return;
@@ -1600,13 +1902,261 @@ function NetworkLabSection() {
 
   const selNodeObj = nodes.find(n => n.id === selectedNode);
   const selLinkObj = links.find(l => l.id === selectedLink);
+  const connectSrcNode = connectDraft ? nodes.find((n) => n.id === connectDraft.fromId) : null;
+  const connectDstNode = connectDraft ? nodes.find((n) => n.id === connectDraft.toId) : null;
+  const connectSrcPorts = connectSrcNode ? getPortDiagram(connectSrcNode).ports : [];
+  const connectDstPorts = connectDstNode ? getPortDiagram(connectDstNode).ports : [];
+
+  const runtimeTables = useMemo(() => {
+    const fdb = [];
+    const arp = [];
+    const dhcp = [];
+    const routes = [];
+    links.filter((l) => l.status === "up").forEach((l) => {
+      const a = nodes.find((n) => n.id === l.from);
+      const b = nodes.find((n) => n.id === l.to);
+      if (!a || !b) return;
+      const bVlan = isEndpointNodeType(b.type) ? getEndpointEffectiveVlan(b, nodes, links) : (b.vlan || 1);
+      const aVlan = isEndpointNodeType(a.type) ? getEndpointEffectiveVlan(a, nodes, links) : (a.vlan || 1);
+      if (a.type === "switch" || a.type === "l3switch") fdb.push({ node: a.label || a.id, vlan: bVlan, mac: b.mac, port: l.fromPort || "eth0", age: 0 });
+      if (b.type === "switch" || b.type === "l3switch") fdb.push({ node: b.label || b.id, vlan: aVlan, mac: a.mac, port: l.toPort || "eth0", age: 0 });
+      if ((a.type === "pc" || a.type === "laptop" || a.type === "server" || a.type === "wap") && b.ip && b.ip !== "WAN") arp.push({ node: a.label || a.id, ip: b.ip, mac: b.mac, age: "00:02:10" });
+      if ((b.type === "pc" || b.type === "laptop" || b.type === "server" || b.type === "wap") && a.ip && a.ip !== "WAN") arp.push({ node: b.label || b.id, ip: a.ip, mac: a.mac, age: "00:02:10" });
+    });
+    nodes.filter((n) => n.type === "router" || n.type === "l3switch").forEach((r) => {
+      normalizeRouterInterfaces(r).forEach((iface) => {
+        routes.push({ node: r.label || r.id, code: "C", prefix: `${iface.ip}/${iface.subnet}`, via: "connected", out: iface.name });
+      });
+      (r.staticRoutes || []).forEach((sr) => {
+        routes.push({ node: r.label || r.id, code: "S", prefix: `${sr.prefix}/${sr.mask || "255.255.255.0"}`, via: sr.nextHop || "-", out: sr.outIf || "?" });
+      });
+      if (r.defaultRoute) {
+        routes.push({ node: r.label || r.id, code: "S*", prefix: "0.0.0.0/0.0.0.0", via: r.defaultRoute, out: "WAN" });
+      }
+    });
+    nodes.filter((n) => isEndpointNodeType(n.type)).forEach((h) => {
+      const hasLease = h.ip && !String(h.ip).startsWith("169.254.");
+      dhcp.push({
+        client: h.label || h.id,
+        mac: h.mac,
+        ip: h.ip || "0.0.0.0",
+        gateway: h.gateway || "0.0.0.0",
+        lease: hasLease ? "23:59:59" : "--",
+        t1: hasLease ? "11:59:59" : "--",
+        t2: hasLease ? "20:59:59" : "--",
+        status: hasLease ? "BOUND" : "NO_LEASE",
+        vlan: getEndpointEffectiveVlan(h, nodes, links),
+      });
+    });
+    const now = Date.now();
+    const camRecent = camTable.filter((e) => now - (e.learnedAt || now) < 300000).map((e) => ({ node: nodes.find((n) => n.id === e.switchId)?.label || e.switchId, vlan: e.vlan, mac: e.mac, port: e.port || "?", age: Math.floor((now - e.learnedAt) / 1000) }));
+    const arpRecent = arpTable.filter((e) => now - (e.createdAt || now) < 240000).map((e) => ({ node: nodes.find((n) => n.id === e.node)?.label || e.node, ip: e.ip, mac: e.mac, age: `${Math.floor((now - e.createdAt) / 1000)}s` }));
+    return { fdb: [...fdb, ...camRecent], arp: [...arp, ...arpRecent], dhcp, routes };
+  }, [getEndpointEffectiveVlan, nodes, links, isEndpointNodeType, normalizeRouterInterfaces, camTable, arpTable]);
+
+  const runCliCommand = useCallback((raw) => {
+    const cmd = String(raw || "").trim().toLowerCase();
+    if (!cmd) return;
+    const out = [];
+    const resolveSwitch = (token) => {
+      const t = String(token || "").toLowerCase();
+      return nodes.find((n) => (n.type === "switch" || n.type === "l3switch") && (n.id.toLowerCase() === t || String(n.label || "").toLowerCase() === t));
+    };
+    if (cmd === "help" || cmd === "?" || cmd === "show commands") {
+      out.push(...CLI_CHEATSHEET_LINES);
+    } else if (cmd === "show mac address-table") {
+      out.push("Vlan    Mac Address         Port         Switch");
+      runtimeTables.fdb.forEach((r) => out.push(`${String(r.vlan).padEnd(7)}${r.mac.padEnd(20)}${String(r.port).padEnd(13)}${r.node}`));
+    } else if (cmd === "show arp") {
+      out.push("Address           MAC Address         Age       Node");
+      runtimeTables.arp.forEach((r) => out.push(`${String(r.ip).padEnd(18)}${r.mac.padEnd(20)}${String(r.age).padEnd(10)}${r.node}`));
+    } else if (cmd === "show ip route") {
+      out.push("Codes: C connected, S static");
+      runtimeTables.routes.forEach((r) => out.push(`${r.code}  ${r.prefix} is directly connected, ${r.out} (${r.node})`));
+    } else if (cmd === "show ip dhcp binding") {
+      out.push("IP Address        Client MAC          Lease      T1         T2         Gateway         VLAN  Status");
+      runtimeTables.dhcp.forEach((r) => out.push(`${String(r.ip).padEnd(18)}${r.mac.padEnd(20)}${String(r.lease).padEnd(11)}${String(r.t1 || "--").padEnd(11)}${String(r.t2 || "--").padEnd(11)}${String(r.gateway).padEnd(16)}${String(r.vlan).padEnd(6)}${r.status}`));
+    } else if (cmd.startsWith("show interfaces switchport ")) {
+      const m = cmd.match(/^show interfaces switchport\s+(.+)$/);
+      const swToken = m?.[1]?.trim() || "";
+      const sw = resolveSwitch(swToken);
+      if (!sw) {
+        out.push("% Switch not found");
+      } else {
+        out.push(`Switchport summary for ${sw.label || sw.id}`);
+        normalizePorts(sw).forEach((p) => {
+          out.push(`${String(p.id).padEnd(10)} mode=${String(p.mode || "access").padEnd(7)} access=${String(p.accessVlan || 1).padEnd(4)} native=${String(p.nativeVlan || 1).padEnd(4)} allowed=${(p.allowedVlans || []).join(",") || "1"}`);
+        });
+      }
+    } else if (cmd.startsWith("set access vlan ")) {
+      const m = cmd.match(/^set access vlan\s+(.+)\s+(\S+)\s+(\d+)$/);
+      const swToken = m?.[1]?.trim() || "";
+      const portId = m?.[2] || "";
+      const vlan = parseInt(m?.[3] || "", 10);
+      const sw = resolveSwitch(swToken);
+      if (!sw || !portId || !Number.isInteger(vlan) || vlan < 1) {
+        out.push("% Usage: set access vlan <switchId|label> <portId> <vlan>");
+      } else {
+        setNodes((prev) => prev.map((n) => {
+          if (n.id !== sw.id) return n;
+          const list = normalizePorts(n);
+          const idx = list.findIndex((p) => p.id.toLowerCase() === portId.toLowerCase());
+          if (idx < 0) return n;
+          list[idx] = { ...list[idx], mode: "access", accessVlan: vlan };
+          return { ...n, ports: list };
+        }));
+        out.push(`Configured ${sw.label || sw.id} ${portId} as access vlan ${vlan}`);
+      }
+    } else if (cmd.startsWith("set trunk vlans ")) {
+      const m = cmd.match(/^set trunk vlans\s+(.+)\s+(\S+)\s+([0-9,\s]+)$/);
+      const swToken = m?.[1]?.trim() || "";
+      const portId = m?.[2] || "";
+      const allowed = String(m?.[3] || "").split(",").map((x) => parseInt(x.trim(), 10)).filter((x) => Number.isInteger(x) && x > 0);
+      const sw = resolveSwitch(swToken);
+      if (!sw || !portId || allowed.length === 0) {
+        out.push("% Usage: set trunk vlans <switchId|label> <portId> <vlanCsv>");
+      } else {
+        setNodes((prev) => prev.map((n) => {
+          if (n.id !== sw.id) return n;
+          const list = normalizePorts(n);
+          const idx = list.findIndex((p) => p.id.toLowerCase() === portId.toLowerCase());
+          if (idx < 0) return n;
+          list[idx] = { ...list[idx], mode: "trunk", allowedVlans: allowed };
+          return { ...n, ports: list };
+        }));
+        out.push(`Configured ${sw.label || sw.id} ${portId} trunk allowed ${allowed.join(",")}`);
+      }
+    } else if (cmd.startsWith("set trunk native ")) {
+      const m = cmd.match(/^set trunk native\s+(.+)\s+(\S+)\s+(\d+)$/);
+      const swToken = m?.[1]?.trim() || "";
+      const portId = m?.[2] || "";
+      const nativeVlan = parseInt(m?.[3] || "", 10);
+      const sw = resolveSwitch(swToken);
+      if (!sw || !portId || !Number.isInteger(nativeVlan) || nativeVlan < 1) {
+        out.push("% Usage: set trunk native <switchId|label> <portId> <vlan>");
+      } else {
+        setNodes((prev) => prev.map((n) => {
+          if (n.id !== sw.id) return n;
+          const list = normalizePorts(n);
+          const idx = list.findIndex((p) => p.id.toLowerCase() === portId.toLowerCase());
+          if (idx < 0) return n;
+          list[idx] = { ...list[idx], mode: "trunk", nativeVlan };
+          return { ...n, ports: list };
+        }));
+        out.push(`Configured ${sw.label || sw.id} ${portId} trunk native vlan ${nativeVlan}`);
+      }
+    } else if (cmd === "show ip nat translations") {
+      out.push("Proto  Inside local         Inside global        Outside global      Expires");
+      natTranslations.forEach((n) => out.push(`${String(n.proto || "tcp").padEnd(6)}${String(n.insideLocal).padEnd(21)}${String(n.insideGlobal).padEnd(21)}${String(n.outsideGlobal).padEnd(20)}${n.expires || "00:00:30"}`));
+      if (natTranslations.length === 0) out.push("(none)");
+    } else if (cmd === "show access-lists") {
+      nodes.filter((n) => n.type === "router" || n.type === "l3switch" || n.type === "firewall").forEach((n) => {
+        out.push(`ACL on ${n.label || n.id}`);
+        const rules = Array.isArray(n.aclRules) ? n.aclRules : [];
+        rules.forEach((r, i) => {
+          const seq = r.seq || (i + 1) * 10;
+          const key = `${n.id}:${seq}`;
+          out.push(` ${seq} ${r.action || "permit"} ${r.protocol || "ip"} ${r.src || "any"} ${r.dst || "any"} ${r.port || "any"} dir=${r.dir || "in"} hits=${aclCounters[key] || 0}`);
+        });
+      });
+    } else if (cmd === "show ip interface brief") {
+      out.push("Device            Interface  IP-Address       Status");
+      nodes.forEach((n) => {
+        if (n.type === "router" || n.type === "l3switch") {
+          normalizeRouterInterfaces(n).forEach((iface) => {
+            out.push(`${String(n.label || n.id).padEnd(17)}${String(iface.name).padEnd(11)}${String(iface.ip || "unassigned").padEnd(17)}up`);
+          });
+        }
+      });
+    } else if (cmd === "show interfaces trunk") {
+      out.push("Switch            Port      Native  Allowed");
+      nodes.filter((n) => n.type === "switch" || n.type === "l3switch").forEach((s) => {
+        normalizePorts(s).filter((p) => p.mode === "trunk").forEach((p) => {
+          out.push(`${String(s.label || s.id).padEnd(17)}${String(p.id).padEnd(10)}${String(p.nativeVlan || 1).padEnd(8)}${(p.allowedVlans || [1]).join(",")}`);
+        });
+      });
+    } else if (cmd.startsWith("set default route ")) {
+      const m = cmd.match(/^set default route\s+(.+)\s+(\d+\.\d+\.\d+\.\d+)$/);
+      const nodeToken = m?.[1]?.trim() || "";
+      const gw = m?.[2] || "";
+      const target = nodes.find((n) => (n.type === "router" || n.type === "l3switch") && (n.id.toLowerCase() === nodeToken || String(n.label || "").toLowerCase() === nodeToken));
+      if (!target) out.push("% Usage: set default route <routerId|label> <nextHop>");
+      else {
+        setNodes((prev) => prev.map((n) => n.id === target.id ? { ...n, defaultRoute: gw } : n));
+        out.push(`Configured default route on ${target.label || target.id} via ${gw}`);
+      }
+    } else if (cmd.startsWith("set nat ")) {
+      const m = cmd.match(/^set nat\s+(.+)\s+(on|off)$/);
+      const nodeToken = m?.[1]?.trim() || "";
+      const state = m?.[2] || "";
+      const target = nodes.find((n) => (n.type === "router" || n.type === "l3switch") && (n.id.toLowerCase() === nodeToken || String(n.label || "").toLowerCase() === nodeToken));
+      if (!target) out.push("% Usage: set nat <routerId|label> on|off");
+      else {
+        setNodes((prev) => prev.map((n) => n.id === target.id ? { ...n, services: { ...(n.services || {}), nat: state === "on" } } : n));
+        out.push(`Set NAT on ${target.label || target.id}: ${state}`);
+      }
+    } else {
+      out.push(`% Unknown command: ${raw}`);
+      out.push('Type "help", "?", or "show commands" for the full cheatsheet.');
+    }
+    setCliOutput((prev) => [...prev, `> ${raw}`, ...out].slice(-160));
+  }, [nodes, runtimeTables, natTranslations, aclCounters]);
 
   // Simulation engine
   const runSimulation = useCallback(() => {
-    if (!simSource || !simDest) return;
+    if (!simSource || (!simUseCustomIp && !simDest)) return;
     const src = nodes.find(n => n.id === simSource);
-    const dst = nodes.find(n => n.id === simDest);
-    if (!src || !dst) return;
+    let dst = nodes.find(n => n.id === simDest);
+    if (!src) return;
+    if (!simUseCustomIp && !dst) return;
+    const customTargetIp = String(simCustomIp || "").trim();
+    const isValidCustomTarget = /^(\d{1,3}\.){3}\d{1,3}$/.test(customTargetIp);
+    const ipToIntQuick = (ip) => {
+      const p = String(ip || "").split(".").map(Number);
+      if (p.length !== 4 || p.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return null;
+      return (((p[0] << 24) >>> 0) + ((p[1] << 16) >>> 0) + ((p[2] << 8) >>> 0) + (p[3] >>> 0)) >>> 0;
+    };
+    const isPrivateIPv4 = (ip) => {
+      const v = ipToIntQuick(ip);
+      if (v === null) return false;
+      const in10 = (v & 0xff000000) === 0x0a000000;
+      const in172 = (v & 0xfff00000) === 0xac100000; // 172.16/12
+      const in192 = (v & 0xffff0000) === 0xc0a80000; // 192.168/16
+      return in10 || in172 || in192;
+    };
+    if (simUseCustomIp) {
+      if (!isValidCustomTarget) return;
+      const localMatch = nodes.find((n) => n.id !== src.id && n.ip === customTargetIp);
+      if (localMatch) {
+        dst = localMatch;
+      } else {
+        // Realistic host behavior:
+        // - Same-subnet destination without ARP response should fail locally (do not route to Internet).
+        // - Private RFC1918 destination with no modeled internal target should not be forced to Internet.
+        const srcLocalSubnet = sameSubnetIPv4(src.ip, src.subnet, customTargetIp, src.subnet);
+        if (srcLocalSubnet === true) {
+          setSimLog([
+            { t: 0, type: "error", msg: `❌ ${customTargetIp} is in local subnet, but no host responded to ARP.` },
+            { t: 1, type: "fix", msg: "🔧 FIX: Add the destination host to the LAN or use a reachable target IP." },
+          ]);
+          setSimRunning(false);
+          return;
+        }
+        if (isPrivateIPv4(customTargetIp)) {
+          setSimLog([
+            { t: 0, type: "error", msg: `❌ ${customTargetIp} is private (RFC1918) and not present in modeled internal topology.` },
+            { t: 1, type: "fix", msg: "🔧 FIX: Add internal route/topology for that private network, or use a public target for Internet simulation." },
+          ]);
+          setSimRunning(false);
+          return;
+        }
+        const internetNode = nodes.find((n) => n.type === "internet");
+        if (!internetNode) return;
+        dst = internetNode;
+      }
+    }
+    if (!dst) return;
+    const targetIp = simUseCustomIp ? customTargetIp : dst.ip;
     setSimRunning(true);
     setSimPackets([]);
     const log = [];
@@ -1630,8 +2180,10 @@ function NetworkLabSection() {
       return (a & mA) === (b & mA) && (a & mB) === (b & mB);
     };
     const bothEndpoints = isEndpointNode(src) && isEndpointNode(dst);
-    const subnetCheck = bothEndpoints && isValidIPv4(src.ip) && isValidIPv4(dst.ip) ? sameSubnet(src.ip, src.subnet, dst.ip, dst.subnet) : null;
-    const interVlanFlow = src.vlan !== dst.vlan;
+    const subnetCheck = bothEndpoints && isValidIPv4(src.ip) && isValidIPv4(targetIp) ? sameSubnet(src.ip, src.subnet, targetIp, dst.subnet) : null;
+    const srcVlan = isEndpointNode(src) ? getEndpointEffectiveVlan(src, nodes, links) : (src.vlan || 1);
+    const dstVlan = isEndpointNode(dst) ? getEndpointEffectiveVlan(dst, nodes, links) : (dst.vlan || 1);
+    const interVlanFlow = srcVlan !== dstVlan;
     const interSubnetFlow = subnetCheck === null ? false : !subnetCheck;
     const needsL3Routing = interVlanFlow || interSubnetFlow;
 
@@ -1680,7 +2232,7 @@ function NetworkLabSection() {
     if (!path) {
       if (needsL3Routing) {
         const reasons = [
-          interVlanFlow ? `VLAN ${src.vlan}→${dst.vlan}` : null,
+          interVlanFlow ? `VLAN ${srcVlan}→${dstVlan}` : null,
           interSubnetFlow ? `Subnet ${src.subnet || "?"} / ${dst.subnet || "?"}` : null,
         ].filter(Boolean).join(", ");
         log.push({ t: 0, type: "error", msg: `❌ No routed path found from ${src.label || src.type} to ${dst.label || dst.type} (${reasons}). Add/verify router or L3 switch connectivity.` });
@@ -1694,6 +2246,95 @@ function NetworkLabSection() {
 
     const pathNodes = path.map(id => nodes.find(n => n.id === id)).filter(Boolean);
     const routingNodesOnPath = pathNodes.filter(isRoutingNode);
+    const isInternetEgress = dst.type === "internet";
+    const srcIsPrivate = (() => {
+      const v = parseIPv4Int(src.ip);
+      if (v === null) return false;
+      return ((v & 0xff000000) === 0x0a000000) || ((v & 0xfff00000) === 0xac100000) || ((v & 0xffff0000) === 0xc0a80000);
+    })();
+    const routeCandidates = routingNodesOnPath.map((rn) => {
+      const connected = normalizeRouterInterfaces(rn).map((iface) => ({
+        prefix: iface.ip,
+        mask: iface.subnet || "255.255.255.0",
+        nextHop: "connected",
+        outIf: iface.name,
+        source: "connected",
+      }));
+      const staticR = (rn.staticRoutes || []).map((r) => ({
+        prefix: r.prefix,
+        mask: r.mask || "255.255.255.0",
+        nextHop: r.nextHop || "",
+        outIf: r.outIf || "",
+        source: "static",
+      }));
+      if (rn.defaultRoute) {
+        staticR.push({ prefix: "0.0.0.0", mask: "0.0.0.0", nextHop: rn.defaultRoute, outIf: "WAN", source: "default" });
+      }
+      const all = [...connected, ...staticR]
+        .filter((r) => r.prefix && r.mask)
+        .filter((r) => cidrContains(targetIp, r.prefix, r.mask))
+        .sort((a, b) => prefixLenFromMask(b.mask) - prefixLenFromMask(a.mask));
+      return { node: rn, best: all[0] || null };
+    });
+    if (simUseCustomIp) {
+      const localMatch = nodes.find((n) => n.id !== src.id && n.ip === targetIp);
+      if (!localMatch && dst.type === "internet") {
+        log.push({ t: 0, type: "info", msg: `🌐 ${targetIp} not found locally. Forwarding request toward Internet edge.` });
+      }
+    }
+    log.push({ t: 0, type: "detail", msg: "[PIPELINE] ingress -> l2 classify -> l3 lookup -> policy -> nat -> egress" });
+    if (isInternetEgress) {
+      const edge = routeCandidates.find((r) => r.best && (r.best.source === "default" || r.best.outIf === "WAN"));
+      if (!edge) {
+        log.push({ t: 0, type: "error", msg: "❌ Internet egress failed: no default route (0.0.0.0/0) found on routed path." });
+        log.push({ t: 1, type: "fix", msg: "🔧 FIX: Configure default route on edge router (CLI: set default route <router> <nextHop>)." });
+        setSimLog(log);
+        setSimRunning(false);
+        return;
+      }
+      const natEnabled = edge.node?.services?.nat !== false;
+      if (srcIsPrivate && !natEnabled) {
+        log.push({ t: 0, type: "error", msg: `❌ Internet egress failed: NAT/PAT disabled on ${edge.node.label || edge.node.id} for private source ${src.ip}.` });
+        log.push({ t: 1, type: "fix", msg: "🔧 FIX: Enable NAT on edge router (CLI: set nat <router> on)." });
+        setSimLog(log);
+        setSimRunning(false);
+        return;
+      }
+      log.push({ t: 0, type: "detail", msg: `🌍 Route lookup selected ${edge.best.prefix}/${prefixLenFromMask(edge.best.mask)} via ${edge.best.nextHop || edge.best.outIf}.` });
+      if (srcIsPrivate && natEnabled) {
+        const publicPort = 50000 + Math.floor(Math.random() * 10000);
+        const trans = {
+          proto: simProtocol.toLowerCase(),
+          insideLocal: `${src.ip}:${49152 + Math.floor(Math.random() * 16000)}`,
+          insideGlobal: `203.0.113.10:${publicPort}`,
+          outsideGlobal: `${targetIp}:443`,
+          expires: "00:00:30",
+          createdAt: Date.now(),
+        };
+        setNatTranslations((prev) => [...prev, trans].slice(-200));
+        log.push({ t: 0, type: "detail", msg: `🔁 NAT/PAT created ${trans.insideLocal} -> ${trans.insideGlobal}.` });
+      }
+    }
+    const evaluateAcl = (rn) => {
+      const rules = Array.isArray(rn.aclRules) ? rn.aclRules : [];
+      if (!rules.length) return { allowed: true };
+      const portMap = { HTTPS: 443, HTTP: 80, SSH: 22, DNS: 53, DHCP: 67, FTP: 21, SMTP: 25, RDP: 3389, SNMP: 161 };
+      const dstPort = portMap[simProtocol] || 443;
+      for (let idx = 0; idx < rules.length; idx++) {
+        const rule = rules[idx];
+        const protoOk = !rule.protocol || rule.protocol === "ip" || String(rule.protocol).toUpperCase() === simProtocol.toUpperCase();
+        const srcOk = !rule.src || rule.src === "any" || rule.src === src.ip;
+        const dstOk = !rule.dst || rule.dst === "any" || rule.dst === targetIp;
+        const portOk = !rule.port || String(rule.port) === "any" || Number(rule.port) === Number(dstPort);
+        const dirOk = !rule.dir || rule.dir === "in";
+        if (protoOk && srcOk && dstOk && portOk && dirOk) {
+          const seq = rule.seq || (idx + 1) * 10;
+          setAclCounters((prev) => ({ ...prev, [`${rn.id}:${seq}`]: (prev[`${rn.id}:${seq}`] || 0) + 1 }));
+          return { allowed: String(rule.action || "deny").toLowerCase() === "permit", rule, seq, dirOk };
+        }
+      }
+      return { allowed: false };
+    };
 
     // Gateway and routing-interface preflight checks
     if (needsL3Routing && isEndpointNode(src)) {
@@ -1725,11 +2366,21 @@ function NetworkLabSection() {
     }
     if (needsL3Routing && isEndpointNode(dst) && routingNodesOnPath.length > 0) {
       const dstSubnetReachable = routingNodesOnPath.some((rn) =>
-        normalizeRouterInterfaces(rn).some((iface) => sameSubnet(iface.ip, iface.subnet, dst.ip, dst.subnet))
+        normalizeRouterInterfaces(rn).some((iface) => sameSubnet(iface.ip, iface.subnet, targetIp, dst.subnet))
       );
       if (!dstSubnetReachable) {
-        log.push({ t: 0, type: "error", msg: `❌ No router/L3 interface on path can reach destination subnet (${dst.ip}/${dst.subnet}).` });
+        log.push({ t: 0, type: "error", msg: `❌ No router/L3 interface on path can reach destination subnet (${targetIp}/${dst.subnet}).` });
         log.push({ t: 1, type: "fix", msg: "🔧 FIX: Add a router/L3 interface in the destination subnet or add the proper routed connection." });
+        setSimLog(log);
+        setSimRunning(false);
+        return;
+      }
+    }
+    for (const rn of routingNodesOnPath) {
+      const acl = evaluateAcl(rn);
+      if (!acl.allowed) {
+        log.push({ t: 0, type: "error", msg: `❌ ACL on ${rn.label || rn.type} denied ${simProtocol} traffic (${src.ip} -> ${targetIp}).` });
+        log.push({ t: 1, type: "fix", msg: "🔧 FIX: Add permit ACL rule on the routed interface path or reorder ACL entries." });
         setSimLog(log);
         setSimRunning(false);
         return;
@@ -1749,15 +2400,22 @@ function NetworkLabSection() {
 
     // Switch-side VLAN configuration checks
     const l2SwitchesOnPath = path.map(id => nodes.find(n => n.id === id)).filter(n => n?.type === "switch");
+    const requiredPathVlans = (() => {
+      const set = new Set([srcVlan]);
+      // For routed traffic to non-endpoint destinations (e.g. Internet/WAN),
+      // only the source-side VLAN must traverse L2 switches.
+      if (isEndpointNode(dst)) set.add(dstVlan);
+      return [...set];
+    })();
     const missingVlanSwitch = l2SwitchesOnPath.find(sw => {
       const configured = Array.isArray(sw.switchVlans) ? sw.switchVlans : [sw.vlan || 1];
-      return !configured.includes(src.vlan) || !configured.includes(dst.vlan);
+      return requiredPathVlans.some((v) => !configured.includes(v));
     });
     if (missingVlanSwitch) {
       log.push({
         t: 0,
         type: "error",
-        msg: `❌ ${missingVlanSwitch.label || "L2 Switch"} is missing VLAN setup for this flow (needs VLAN ${src.vlan}${src.vlan !== dst.vlan ? ` and VLAN ${dst.vlan}` : ""}).`,
+        msg: `❌ ${missingVlanSwitch.label || "L2 Switch"} is missing VLAN setup for this flow (needs VLAN ${requiredPathVlans.join(", ")}).`,
       });
       log.push({
         t: 1,
@@ -1771,13 +2429,13 @@ function NetworkLabSection() {
     if (needsL3Routing) {
       const trunkIssue = l2SwitchesOnPath.find(sw => {
         const allowed = Array.isArray(sw.trunkAllowedVlans) ? sw.trunkAllowedVlans : [sw.vlan || 1];
-        return !allowed.includes(src.vlan) || !allowed.includes(dst.vlan);
+        return requiredPathVlans.some((v) => !allowed.includes(v));
       });
       if (trunkIssue) {
         log.push({
           t: 0,
           type: "error",
-          msg: `❌ ${trunkIssue.label || "L2 Switch"} trunk allowed VLANs do not include required VLANs (${src.vlan}${src.vlan !== dst.vlan ? `, ${dst.vlan}` : ""}).`,
+          msg: `❌ ${trunkIssue.label || "L2 Switch"} trunk allowed VLANs do not include required VLANs (${requiredPathVlans.join(", ")}).`,
         });
         log.push({
           t: 1,
@@ -1798,7 +2456,7 @@ function NetworkLabSection() {
     let t = 0;
     let faultTriggered = false;
 
-    log.push({ t: t++, type: "info", msg: `📦 Initiating ${pType} connection from ${src.type.toUpperCase()} (${src.ip}) → ${dst.type.toUpperCase()} (${dst.ip})` });
+    log.push({ t: t++, type: "info", msg: `📦 Initiating ${pType} connection from ${src.type.toUpperCase()} (${src.ip}) → ${dst.type.toUpperCase()} (${targetIp})` });
     log.push({ t: t++, type: "osi", msg: `[L7 Application] ${pType} request generated. Port: ${dstPort}` });
 
     if (pType === "HTTPS" || pType === "SSH" || pType === "SFTP") {
@@ -1807,22 +2465,28 @@ function NetworkLabSection() {
     }
 
     log.push({ t: t++, type: "osi", msg: `[L4 Transport] TCP segment created. Src port: ${srcPort}, Dst port: ${dstPort}. SYN flag set.` });
-    log.push({ t: t++, type: "osi", msg: `[L3 Network] IP packet: ${src.ip} → ${dst.ip}. TTL=64. Protocol=TCP.` });
+    log.push({ t: t++, type: "osi", msg: `[L3 Network] IP packet: ${src.ip} → ${targetIp}. TTL=64. Protocol=TCP.` });
 
     // Check if we need ARP
-    log.push({ t: t++, type: "detail", msg: `[L3] Checking ARP cache for next-hop MAC address...` });
+    const arpKey = `${src.id}|${src.gateway || targetIp}`;
+    const arpHit = arpTable.find((a) => a.key === arpKey);
+    log.push({ t: t++, type: "detail", msg: `[L3] Checking ARP cache for next-hop MAC address... ${arpHit ? "HIT" : "MISS"}` });
+    if (!arpHit) {
+      setArpTable((prev) => [...prev, { key: arpKey, node: src.id, ip: src.gateway || targetIp, mac: nodes.find((n) => n.id === path[1])?.mac || "ff:ff:ff:ff:ff:ff", createdAt: Date.now() }].slice(-400));
+      log.push({ t: t++, type: "detail", msg: `[L2] ARP request broadcast -> ARP reply received. Cache updated.` });
+    }
     log.push({ t: t++, type: "osi", msg: `[L2 Data Link] Ethernet frame: Src MAC ${src.mac}, Dst MAC ${nodes.find(n=>n.id===path[1])?.mac || "ff:ff:ff:ff:ff:ff"}` });
     if (needsL3Routing) {
       const firstRouterHop = path.map(id => nodes.find(n => n.id === id)).find(isRoutingNode);
       const reasonText = [
-        interVlanFlow ? `VLAN ${src.vlan} → VLAN ${dst.vlan}` : null,
-        interSubnetFlow ? `${src.ip}/${src.subnet} → ${dst.ip}/${dst.subnet}` : null,
+        interVlanFlow ? `VLAN ${srcVlan} → VLAN ${dstVlan}` : null,
+        interSubnetFlow ? `${src.ip}/${src.subnet} → ${targetIp}/${dst.subnet}` : null,
       ].filter(Boolean).join(" | ");
       log.push({ t: t++, type: "detail", msg: `[L3] Routing required: ${reasonText}. First L3 hop: ${firstRouterHop?.label || firstRouterHop?.type || "router"}.` });
     }
     
-    if (src.vlan > 1) {
-      log.push({ t: t++, type: "detail", msg: `[L2] 802.1Q VLAN tag inserted: VLAN ${src.vlan}` });
+    if (srcVlan > 1) {
+      log.push({ t: t++, type: "detail", msg: `[L2] 802.1Q VLAN tag inserted: VLAN ${srcVlan}` });
     }
     
     log.push({ t: t++, type: "osi", msg: `[L1 Physical] Frame converted to electrical/optical signals. Transmitted on wire.` });
@@ -1912,9 +2576,9 @@ function NetworkLabSection() {
           faultTriggered = true;
           log.push({ t: t++, type: "fault", msg: `🚫 ACL BLOCKING TRAFFIC on ${curr.type.toUpperCase()}!` });
           log.push({ t: t++, type: "fault", msg: `   Rule: deny tcp any any eq ${dstPort} — matched BEFORE permit rule!` });
-          log.push({ t: t++, type: "fault", msg: `   Packet DROPPED. ${pType} traffic from ${src.ip} to ${dst.ip}:${dstPort} denied.` });
+          log.push({ t: t++, type: "fault", msg: `   Packet DROPPED. ${pType} traffic from ${src.ip} to ${targetIp}:${dstPort} denied.` });
           log.push({ t: t++, type: "fault", msg: `   Implicit 'deny all' at end of ACL caught remaining traffic.` });
-          log.push({ t: t++, type: "fix", msg: `🔧 FIX: Reorder ACL — most specific rules first. Add 'permit tcp ${src.ip} ${dst.ip} eq ${dstPort}' ABOVE the deny.` });
+          log.push({ t: t++, type: "fix", msg: `🔧 FIX: Reorder ACL — most specific rules first. Add 'permit tcp ${src.ip} ${targetIp} eq ${dstPort}' ABOVE the deny.` });
         }
         if (fault.id === "mac_flood" && (curr.type === "switch" || curr.type === "l3switch")) {
           faultTriggered = true;
@@ -1958,18 +2622,19 @@ function NetworkLabSection() {
       // Device processing
       if (next.type === "switch" || next.type === "l3switch") {
         log.push({ t: t++, type: "device", msg: `🔲 ${next.type.toUpperCase()} processing: MAC lookup in CAM table. Dst MAC ${dst.mac} → forwarding to port ${Math.floor(Math.random()*24)+1}` });
+        setCamTable((prev) => [...prev, { switchId: next.id, vlan: srcVlan, mac: curr.mac, port: link?.to === next.id ? link?.toPort : link?.fromPort, learnedAt: Date.now() }].slice(-500));
         if (next.stp === "enabled") {
           log.push({ t: t++, type: "detail", msg: `   STP active. Port state: Forwarding. Root bridge cost: ${Math.floor(Math.random()*19)+1}` });
         }
       }
       if (next.type === "router" || next.type === "l3switch") {
-        log.push({ t: t++, type: "device", msg: `🔀 ${next.type.toUpperCase()} processing: Routing table lookup for ${dst.ip}. TTL: 64→63. Next-hop determined.` });
+        log.push({ t: t++, type: "device", msg: `🔀 ${next.type.toUpperCase()} processing: Routing table lookup for ${targetIp}. TTL: 64→63. Next-hop determined.` });
         if (dst.type === "internet") {
           log.push({ t: t++, type: "detail", msg: `   NAT/PAT: Translating ${src.ip}:${srcPort} → public IP:${50000+Math.floor(Math.random()*10000)}` });
         }
       }
       if (next.type === "firewall") {
-        log.push({ t: t++, type: "device", msg: `🛡️ FIREWALL: Stateful inspection. ${pType} ${src.ip}:${srcPort} → ${dst.ip}:${dstPort}` });
+        log.push({ t: t++, type: "device", msg: `🛡️ FIREWALL: Stateful inspection. ${pType} ${src.ip}:${srcPort} → ${targetIp}:${dstPort}` });
         log.push({ t: t++, type: "detail", msg: `   Rule matched: PERMIT ${pType} from trusted zone to untrusted zone. Connection tracked.` });
       }
       if (next.type === "ids") {
@@ -1984,7 +2649,7 @@ function NetworkLabSection() {
     }
 
     if (!faultTriggered || !fault) {
-      log.push({ t: t++, type: "success", msg: `✅ ${pType} packet delivered to ${dst.type.toUpperCase()} (${dst.ip}:${dstPort}). Connection established!` });
+      log.push({ t: t++, type: "success", msg: `✅ ${pType} packet delivered to ${dst.type.toUpperCase()} (${targetIp}:${dstPort}). Connection established!` });
       log.push({ t: t++, type: "detail", msg: `   TCP 3-way handshake complete (SYN→SYN-ACK→ACK). RTT: ${Math.floor(Math.random()*15)+1}ms. ${path.length-1} hops.` });
     } else if (fault && (fault.id === "stp_loop" || fault.id === "acl_block" || fault.id === "wrong_gateway" || fault.id === "dhcp_exhaust" || fault.id === "dns_failure")) {
       log.push({ t: t++, type: "error", msg: `❌ Packet FAILED to reach destination due to: ${fault.name}` });
@@ -2007,9 +2672,9 @@ function NetworkLabSection() {
       }
     }, 80);
 
-  }, [simSource, simDest, simProtocol, nodes, links, activeFault]);
+  }, [simSource, simDest, simUseCustomIp, simCustomIp, simProtocol, nodes, links, activeFault, getEndpointEffectiveVlan]);
 
-  const clearAll = () => { setNodes([]); setLinks([]); setSelectedNode(null); setSelectedLink(null); setSimLog([]); setSimPackets([]); setActiveFault(null); setTopologyLog([]); };
+  const clearAll = () => { setNodes([]); setLinks([]); setSelectedNode(null); setSelectedLink(null); setSimLog([]); setSimPackets([]); setActiveFault(null); setTopologyLog([]); setArpTable([]); setNatTranslations([]); setAclCounters({}); setCamTable([]); };
 
   const logPresetProvisioning = useCallback((presetName, presetNodes, presetLinks) => {
     pushTopologyLog({ type: "event", msg: `📋 Loaded preset: ${presetName === "basic_lan" ? "Basic LAN" : "Enterprise"}. Starting automatic provisioning...` });
@@ -2099,22 +2764,43 @@ function NetworkLabSection() {
       if (n.type === "router" || n.type === "l3switch") {
         return {
           ...n,
+          portCount: n.portCount || (DEVICE_TEMPLATES.find((d) => d.type === n.type)?.ports || 2),
           routerMode: n.routerMode || "subinterfaces",
           routerInterfaces: normalizeRouterInterfaces(n),
+          staticRoutes: Array.isArray(n.staticRoutes) ? n.staticRoutes : [],
+          defaultRoute: n.defaultRoute || "",
+          ports: normalizePorts(n),
           services: { ...defaultServicesForType(n.type), ...(n.services || {}) },
         };
       }
       if (n.type === "switch" && typeof n.managed === "undefined") {
-        return { ...n, managed: true, switchVlans: n.switchVlans || [n.vlan || 1], trunkAllowedVlans: n.trunkAllowedVlans || [n.vlan || 1] };
+        return { ...n, portCount: n.portCount || (DEVICE_TEMPLATES.find((d) => d.type === n.type)?.ports || 8), managed: true, switchVlans: n.switchVlans || [n.vlan || 1], trunkAllowedVlans: n.trunkAllowedVlans || [n.vlan || 1], accessVlanDefault: n.accessVlanDefault || n.vlan || 1, ports: normalizePorts(n) };
       }
       if (n.type === "switch") {
         return {
           ...n,
+          portCount: n.portCount || (DEVICE_TEMPLATES.find((d) => d.type === n.type)?.ports || 8),
           switchVlans: Array.isArray(n.switchVlans) && n.switchVlans.length > 0 ? n.switchVlans : [n.vlan || 1],
           trunkAllowedVlans: Array.isArray(n.trunkAllowedVlans) && n.trunkAllowedVlans.length > 0 ? n.trunkAllowedVlans : [n.vlan || 1],
+          accessVlanDefault: n.accessVlanDefault || n.vlan || 1,
+          ports: normalizePorts(n),
         };
       }
-      return { ...n, services: { ...defaultServicesForType(n.type), ...(n.services || {}) } };
+      return { ...n, portCount: n.portCount || (DEVICE_TEMPLATES.find((d) => d.type === n.type)?.ports || 1), ports: normalizePorts(n), services: { ...defaultServicesForType(n.type), ...(n.services || {}) } };
+    });
+    const usedByNode = {};
+    const normalizedLinks = newLinks.map((l) => {
+      const fromNode = normalizedNodes.find((n) => n.id === l.from);
+      const toNode = normalizedNodes.find((n) => n.id === l.to);
+      const fromPorts = normalizePorts(fromNode);
+      const toPorts = normalizePorts(toNode);
+      usedByNode[l.from] = usedByNode[l.from] || new Set();
+      usedByNode[l.to] = usedByNode[l.to] || new Set();
+      const fp = l.fromPort || (fromPorts.find((p) => !usedByNode[l.from].has(p.id)) || fromPorts[0] || { id: "eth0" }).id;
+      const tp = l.toPort || (toPorts.find((p) => !usedByNode[l.to].has(p.id)) || toPorts[0] || { id: "eth0" }).id;
+      usedByNode[l.from].add(fp);
+      usedByNode[l.to].add(tp);
+      return { ...l, fromPort: fp, toPort: tp };
     });
     let minPx = Infinity;
     let minPy = Infinity;
@@ -2140,8 +2826,8 @@ function NetworkLabSection() {
       y: Math.max(30, Math.min(labCanvas.h - 30, n.y)),
     }));
     setNodes(clampedNodes);
-    setLinks(newLinks);
-    logPresetProvisioning(preset, clampedNodes, newLinks);
+    setLinks(normalizedLinks);
+    logPresetProvisioning(preset, clampedNodes, normalizedLinks);
   };
 
   // Canvas renderer
@@ -2335,21 +3021,55 @@ function NetworkLabSection() {
             <Pill active={tab==="build"} onClick={() => setTab("build")} color="#00e5ff">🔧 Build</Pill>
             <Pill active={tab==="sim"} onClick={() => setTab("sim")} color="#22c55e">▶ Simulate</Pill>
             <Pill active={tab==="faults"} onClick={() => setTab("faults")} color="#ef4444">⚡ Fault Injection</Pill>
+            <Pill active={tab==="cli"} onClick={() => setTab("cli")} color="#a78bfa">⌨ CLI</Pill>
           </div>
 
       {tab === "build" && (
         <>
           {/* Device palette */}
           <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1, fontFamily: "'JetBrains Mono', monospace" }}>Add device (appears in the center of your current view)</div>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {DEVICE_TEMPLATES.map(d => (
-                <button key={d.type} onClick={() => addDevice(d)} style={{
-                  padding: "6px 12px", borderRadius: 8, border: `1px solid ${d.color}44`, background: `${d.color}11`,
-                  color: d.color, cursor: "pointer", fontSize: 12, fontFamily: "'JetBrains Mono', monospace", display: "flex", alignItems: "center", gap: 4
-                }}>{d.icon} {d.label}</button>
+            <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6, textTransform: "uppercase", letterSpacing: 1, fontFamily: "'JetBrains Mono', monospace" }}>Add device (appears in the center of your current view). Use ⓘ for a deep dive without adding.</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+              {DEVICE_TEMPLATES.map((d) => (
+                <div key={d.type} style={{ display: "inline-flex", alignItems: "center", gap: 2, borderRadius: 8, border: `1px solid ${d.color}33`, background: `${d.color}08`, padding: "2px 2px 2px 4px" }}>
+                  <button type="button" onClick={() => addDevice(d)} style={{
+                    padding: "6px 10px", borderRadius: 6, border: "none", background: "transparent",
+                    color: d.color, cursor: "pointer", fontSize: 12, fontFamily: "'JetBrains Mono', monospace", display: "flex", alignItems: "center", gap: 4
+                  }}>{d.icon} {d.label}</button>
+                  <button
+                    type="button"
+                    aria-label={`Deep dive: ${d.label}`}
+                    aria-pressed={labInfoDeviceType === d.type}
+                    title="Deep dive (does not add device)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setLabInfoDeviceType((t) => (t === d.type ? null : d.type));
+                    }}
+                    style={{
+                      width: 26, height: 26, padding: 0, borderRadius: 6, border: labInfoDeviceType === d.type ? `1px solid ${d.color}` : "1px solid rgba(255,255,255,0.12)",
+                      background: labInfoDeviceType === d.type ? `${d.color}22` : "rgba(0,0,0,0.25)", color: d.color, cursor: "pointer", fontSize: 13, fontWeight: 700, lineHeight: 1, flexShrink: 0
+                    }}
+                  >ⓘ</button>
+                </div>
               ))}
             </div>
+            {labInfoDeviceType && (() => {
+              const tmpl = DEVICE_TEMPLATES.find((x) => x.type === labInfoDeviceType);
+              const dd = getDeepDiveForLabDeviceType(labInfoDeviceType);
+              if (!tmpl) return null;
+              return (
+                <div style={{
+                  marginTop: 12, padding: "12px 14px", borderRadius: 10, border: `1px solid ${tmpl.color}44`,
+                  background: "rgba(0,0,0,0.25)", maxHeight: 320, overflowY: "auto"
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: tmpl.color, fontFamily: "'JetBrains Mono', monospace" }}>{tmpl.icon} About: {tmpl.label}</div>
+                    <button type="button" onClick={() => setLabInfoDeviceType(null)} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(255,255,255,0.06)", color: "#94a3b8", cursor: "pointer", fontSize: 11, flexShrink: 0 }}>Close</button>
+                  </div>
+                  {dd ? <DeepDiveContent deepDive={dd} accentColor={tmpl.color} /> : <div style={{ fontSize: 12, color: "#64748b" }}>No deep dive content for this device yet.</div>}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Cable selector + actions */}
@@ -2451,19 +3171,34 @@ function NetworkLabSection() {
           <div style={{ fontSize: 18, color: "#475569", paddingBottom: 4 }}>→</div>
           <div>
             <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4, fontFamily: "'JetBrains Mono', monospace" }}>Destination</div>
-            <select value={simDest || ""} onChange={e => setSimDest(e.target.value || null)} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #f43f5e44", background: "rgba(0,0,0,0.3)", color: "#f43f5e", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
+            <select value={simDest || ""} disabled={simUseCustomIp} onChange={e => setSimDest(e.target.value || null)} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #f43f5e44", background: simUseCustomIp ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.3)", color: simUseCustomIp ? "#64748b" : "#f43f5e", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
               <option value="">— select —</option>
               {nodes.filter(n => n.id !== simSource).map(n => <option key={n.id} value={n.id}>{n.icon} {n.label || n.type} ({n.ip})</option>)}
             </select>
           </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, paddingBottom: 4, color: "#94a3b8", fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
+            <input type="checkbox" checked={simUseCustomIp} onChange={(e) => setSimUseCustomIp(e.target.checked)} />
+            Custom IP request
+          </label>
+          {simUseCustomIp && (
+            <div>
+              <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4, fontFamily: "'JetBrains Mono', monospace" }}>Target IP</div>
+              <input
+                placeholder="e.g. 8.8.8.8"
+                value={simCustomIp}
+                onChange={(e) => setSimCustomIp(e.target.value)}
+                style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid rgba(56,189,248,0.45)", background: "rgba(0,0,0,0.3)", color: "#38bdf8", fontSize: 12, fontFamily: "'JetBrains Mono', monospace", minWidth: 130 }}
+              />
+            </div>
+          )}
           <div>
             <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4, fontFamily: "'JetBrains Mono', monospace" }}>Protocol</div>
             <select value={simProtocol} onChange={e => setSimProtocol(e.target.value)} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}>
               {["HTTPS","HTTP","SSH","DNS","DHCP","FTP","SMTP","RDP","SNMP"].map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </div>
-          <button onClick={runSimulation} disabled={!simSource || !simDest || simRunning}
-            style={{ padding: "8px 20px", borderRadius: 8, border: "1px solid #22c55e", background: "#22c55e18", color: "#22c55e", cursor: simSource && simDest && !simRunning ? "pointer" : "default", fontSize: 13, fontWeight: 600, opacity: simSource && simDest && !simRunning ? 1 : 0.4 }}>
+          <button onClick={runSimulation} disabled={!simSource || (!simUseCustomIp && !simDest) || (simUseCustomIp && !simCustomIp.trim()) || simRunning}
+            style={{ padding: "8px 20px", borderRadius: 8, border: "1px solid #22c55e", background: "#22c55e18", color: "#22c55e", cursor: (simSource && (simUseCustomIp ? Boolean(simCustomIp.trim()) : Boolean(simDest)) && !simRunning) ? "pointer" : "default", fontSize: 13, fontWeight: 600, opacity: (simSource && (simUseCustomIp ? Boolean(simCustomIp.trim()) : Boolean(simDest)) && !simRunning) ? 1 : 0.4 }}>
             ▶ Send Packet
           </button>
         </div>
@@ -2500,6 +3235,57 @@ function NetworkLabSection() {
               </div>
             );
           })()}
+        </div>
+      )}
+
+      {tab === "cli" && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11, color: "#64748b", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1, fontFamily: "'JetBrains Mono', monospace" }}>
+            Operational CLI-like commands
+          </div>
+          <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => runCliCommand("help")}
+              style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #38bdf855", background: "#38bdf822", color: "#7dd3fc", cursor: "pointer", fontSize: 11, fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}
+              title="List every supported command"
+            >
+              Cheatsheet (help)
+            </button>
+            {["show mac address-table", "show arp", "show ip route", "show ip dhcp binding"].map((cmd) => (
+              <button
+                key={cmd}
+                type="button"
+                onClick={() => runCliCommand(cmd)}
+                style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #a78bfa55", background: "#a78bfa14", color: "#c4b5fd", cursor: "pointer", fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}
+              >
+                {cmd}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              value={cliInput}
+              onChange={(e) => setCliInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  runCliCommand(cliInput);
+                  setCliInput("");
+                }
+              }}
+              placeholder="Type command..."
+              style={{ flex: 1, padding: "7px 10px", borderRadius: 6, border: "1px solid rgba(255,255,255,0.15)", background: "rgba(0,0,0,0.35)", color: "#e2e8f0", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}
+            />
+            <button
+              onClick={() => { runCliCommand(cliInput); setCliInput(""); }}
+              style={{ padding: "7px 12px", borderRadius: 6, border: "1px solid #22c55e55", background: "#22c55e14", color: "#22c55e", cursor: "pointer", fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}
+            >
+              Run
+            </button>
+          </div>
+          <div style={{ marginTop: 8, maxHeight: 220, overflow: "auto", padding: 8, borderRadius: 8, border: "1px solid rgba(167,139,250,0.3)", background: "rgba(8,10,20,0.75)", fontFamily: "'JetBrains Mono', monospace", fontSize: 11, lineHeight: 1.5, color: "#cbd5e1" }}>
+            {cliOutput.map((line, idx) => <div key={idx}>{line}</div>)}
+          </div>
         </div>
       )}
 
@@ -2572,6 +3358,7 @@ function NetworkLabSection() {
               {(() => {
                 const isL2Switch = selNodeObj.type === "switch";
                 const isRoutingNode = selNodeObj.type === "router" || selNodeObj.type === "l3switch";
+                const isEndpoint = isEndpointNodeType(selNodeObj.type);
                 const supportsServices = ["router", "l3switch", "dhcp", "dns", "firewall"].includes(selNodeObj.type);
                 const isManagedSwitch = !isL2Switch || selNodeObj.managed !== false;
                 const showMgmtFields = !isL2Switch || isManagedSwitch;
@@ -2580,6 +3367,8 @@ function NetworkLabSection() {
                 const routerIfText = routerIfList.map((i) => `${i.name} ${i.ip}/${i.subnet} (VLAN ${i.vlan})`).join(" | ");
                 const switchVlansText = isL2Switch ? (selNodeObj.switchVlans || [selNodeObj.vlan || 1]).join(", ") : "";
                 const trunkVlansText = isL2Switch ? (selNodeObj.trunkAllowedVlans || [selNodeObj.vlan || 1]).join(", ") : "";
+                const effectiveVlan = isEndpoint ? getEndpointEffectiveVlan(selNodeObj, nodes, links) : (selNodeObj.vlan || 1);
+                const portRows = (isL2Switch || selNodeObj.type === "l3switch") ? normalizePorts(selNodeObj) : [];
                 const vlanChoices = (() => {
                   const parseCsvVlans = (raw) =>
                     String(raw || "")
@@ -2616,16 +3405,20 @@ function NetworkLabSection() {
                 return (
                   <>
               <InfoRow label="Type" value={selNodeObj.type} />
+              <InfoRow label="Node ID" value={selNodeObj.id} />
               <InfoRow label="Layer" value={selNodeObj.layer || "N/A"} />
               <InfoRow label={isL2Switch ? "Management IP" : "IP Address"} value={showMgmtFields ? selNodeObj.ip : "N/A (unmanaged)"} />
               <InfoRow label="MAC Address" value={selNodeObj.mac} />
               <InfoRow label="Subnet Mask" value={showMgmtFields ? selNodeObj.subnet : "N/A (unmanaged)"} />
               <InfoRow label="Gateway" value={showMgmtFields ? selNodeObj.gateway : "N/A (unmanaged)"} />
-              <InfoRow label="VLAN" value={showMgmtFields ? selNodeObj.vlan : "N/A (unmanaged)"} />
+              <InfoRow label={isEndpoint ? "Effective VLAN" : "VLAN"} value={showMgmtFields ? effectiveVlan : "N/A (unmanaged)"} />
               {isL2Switch && isManagedSwitch && <InfoRow label="Configured VLANs" value={switchVlansText} />}
               {isL2Switch && isManagedSwitch && <InfoRow label="Trunk Allowed VLANs" value={trunkVlansText} />}
               {isRoutingNode && <InfoRow label="Interface IPs" value={routerIfText} />}
               {isRoutingNode && <InfoRow label="Interface Mode" value={routerMode === "subinterfaces" ? "Router-on-a-stick (802.1Q)" : "Routed physical interfaces"} />}
+              {isRoutingNode && <InfoRow label="Default Route" value={selNodeObj.defaultRoute || "unset"} />}
+              {(selNodeObj.type === "switch" || selNodeObj.type === "l3switch") && <InfoRow label="MAC Table Entries" value={String(runtimeTables.fdb.filter((r) => r.node === (selNodeObj.label || selNodeObj.id)).length)} />}
+              {isRoutingNode && <InfoRow label="Route Entries" value={String(runtimeTables.routes.filter((r) => r.node === (selNodeObj.label || selNodeObj.id)).length)} />}
               <InfoRow label="Duplex" value={selNodeObj.duplex} />
               <InfoRow label="Speed" value={selNodeObj.speed} />
               {selNodeObj.stp !== "n/a" && <InfoRow label="STP" value={selNodeObj.stp} />}
@@ -2651,6 +3444,23 @@ function NetworkLabSection() {
                       </select>
                     </div>
                   )}
+                  <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                    <input
+                      type="number"
+                      min={1}
+                      max={48}
+                      value={selNodeObj.portCount || normalizePorts(selNodeObj).length}
+                      onChange={e => setNodes(prev => prev.map(n => {
+                        if (n.id !== selNodeObj.id) return n;
+                        const nextCount = Math.max(1, Math.min(48, parseInt(e.target.value, 10) || 1));
+                        const seeded = normalizePorts({ ...n, portCount: nextCount });
+                        const kept = seeded.slice(0, nextCount).map((p, i) => ({ ...p, id: p.id || `${n.type || "p"}-${i + 1}` }));
+                        return { ...n, portCount: nextCount, ports: kept };
+                      }))}
+                      style={{ width: 110, padding: "5px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 11, fontFamily: "monospace" }}
+                    />
+                    <div style={{ alignSelf: "center", fontSize: 10, color: "#94a3b8", fontFamily: "monospace" }}>Port count</div>
+                  </div>
                   {supportsServices && (
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
                       {Object.entries(selNodeObj.services || {}).map(([svc, enabled]) => (
@@ -2722,9 +3532,109 @@ function NetworkLabSection() {
                         }}
                         style={{ width: "100%", padding: "5px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 11, fontFamily: "monospace" }}
                       />
+                      <input
+                        placeholder="Default access VLAN (for new ports)"
+                        value={String(selNodeObj.accessVlanDefault || selNodeObj.vlan || 1)}
+                        onChange={e => setNodes(prev => prev.map(n => {
+                          if (n.id !== selNodeObj.id) return n;
+                          const nextVlan = parseInt(e.target.value, 10) || 1;
+                          return { ...n, accessVlanDefault: nextVlan };
+                        }))}
+                        style={{ width: "100%", marginTop: 4, padding: "5px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 11, fontFamily: "monospace" }}
+                      />
+                      <div style={{ marginTop: 5, fontSize: 10, color: "#94a3b8", lineHeight: 1.4 }}>
+                        Existing links keep per-port VLAN. This default applies when new access ports are created.
+                      </div>
                           </>
                         );
                       })()}
+                    </div>
+                  )}
+                  {(isL2Switch || selNodeObj.type === "l3switch") && isManagedSwitch && (
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.7 }}>Switchports</div>
+                      <div style={{ maxHeight: 170, overflow: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: 6 }}>
+                        {portRows.map((p, idx) => (
+                          <div key={p.id} style={{ border: "1px solid rgba(255,255,255,0.08)", borderRadius: 6, padding: 6, marginBottom: 5 }}>
+                            <div style={{ display: "grid", gridTemplateColumns: "1.2fr .9fr", gap: 4, marginBottom: 4 }}>
+                              <div style={{ padding: "5px 6px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.08)", color: "#cbd5e1", fontSize: 10, fontFamily: "monospace", background: "rgba(255,255,255,0.03)" }}>{p.id}</div>
+                              <select
+                                value={p.mode || "access"}
+                                onChange={e => setNodes(prev => prev.map(n => {
+                                  if (n.id !== selNodeObj.id) return n;
+                                  const list = normalizePorts(n);
+                                  list[idx] = { ...list[idx], mode: e.target.value };
+                                  return { ...n, ports: list };
+                                }))}
+                                style={{ padding: "5px 6px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 10 }}
+                              >
+                                <option value="access">access</option>
+                                <option value="trunk">trunk</option>
+                              </select>
+                            </div>
+                            {p.mode === "access" ? (
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 4 }}>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={p.accessVlan || 1}
+                                  onChange={e => setNodes(prev => prev.map(n => {
+                                    if (n.id !== selNodeObj.id) return n;
+                                    const list = normalizePorts(n);
+                                    const v = parseInt(e.target.value, 10) || 1;
+                                    list[idx] = { ...list[idx], accessVlan: v };
+                                    return { ...n, ports: list };
+                                  }))}
+                                  title="Access VLAN"
+                                  style={{ padding: "5px 6px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 10, fontFamily: "monospace" }}
+                                />
+                                <div style={{ alignSelf: "center", fontSize: 10, color: "#94a3b8", fontFamily: "monospace" }}>access vlan</div>
+                              </div>
+                            ) : (
+                              <div style={{ display: "grid", gridTemplateColumns: ".9fr 1.3fr", gap: 4 }}>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={p.nativeVlan || 1}
+                                  onChange={e => setNodes(prev => prev.map(n => {
+                                    if (n.id !== selNodeObj.id) return n;
+                                    const list = normalizePorts(n);
+                                    const v = parseInt(e.target.value, 10) || 1;
+                                    list[idx] = { ...list[idx], nativeVlan: v };
+                                    return { ...n, ports: list };
+                                  }))}
+                                  title="Native VLAN"
+                                  placeholder="native vlan"
+                                  style={{ padding: "5px 6px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 10, fontFamily: "monospace" }}
+                                />
+                                <input
+                                  value={p.allowedVlansDraft ?? (p.allowedVlans || []).join(",")}
+                                  onChange={e => setNodes(prev => prev.map(n => {
+                                    if (n.id !== selNodeObj.id) return n;
+                                    const list = normalizePorts(n);
+                                    list[idx] = { ...list[idx], allowedVlansDraft: e.target.value };
+                                    return { ...n, ports: list };
+                                  }))}
+                                  onBlur={e => setNodes(prev => prev.map(n => {
+                                    if (n.id !== selNodeObj.id) return n;
+                                    const list = normalizePorts(n);
+                                    const raw = String(e.target.value || "");
+                                    const allowed = raw.split(",").map((x) => parseInt(x.trim(), 10)).filter((x) => Number.isInteger(x) && x > 0);
+                                    list[idx] = { ...list[idx], allowedVlans: allowed.length ? allowed : (list[idx].allowedVlans || [1]), allowedVlansDraft: undefined };
+                                    return { ...n, ports: list };
+                                  }))}
+                                  onKeyDown={e => {
+                                    if (e.key === "Enter") e.currentTarget.blur();
+                                  }}
+                                  placeholder="allowed vlans (csv)"
+                                  title="Allowed VLANs CSV (example: 10,20,30)"
+                                  style={{ padding: "5px 6px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 10, fontFamily: "monospace" }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   )}
                   {isRoutingNode && (
@@ -2739,14 +3649,79 @@ function NetworkLabSection() {
                       </select>
                     </div>
                   )}
+                  {isRoutingNode && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 6, marginBottom: 6 }}>
+                      <input
+                        placeholder="Default route next-hop"
+                        value={selNodeObj.defaultRoute || ""}
+                        onChange={e => setNodes(prev => prev.map(n => n.id === selNodeObj.id ? { ...n, defaultRoute: e.target.value } : n))}
+                        style={{ padding: "5px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 11, fontFamily: "monospace" }}
+                      />
+                      <input
+                        placeholder="Static route: 10.10.0.0/255.255.0.0->192.168.1.254"
+                        value={selNodeObj.staticRouteDraft || ""}
+                        onChange={e => setNodes(prev => prev.map(n => n.id === selNodeObj.id ? { ...n, staticRouteDraft: e.target.value } : n))}
+                        onBlur={e => setNodes(prev => prev.map(n => {
+                          if (n.id !== selNodeObj.id) return n;
+                          const raw = String(e.target.value || "");
+                          if (!raw.includes("->")) return { ...n, staticRouteDraft: undefined };
+                          const [lhs, nh] = raw.split("->").map((x) => x.trim());
+                          const [prefix, mask = "255.255.255.0"] = lhs.split("/").map((x) => x.trim());
+                          const nextHop = nh || "";
+                          if (!prefix || !nextHop) return { ...n, staticRouteDraft: undefined };
+                          const list = Array.isArray(n.staticRoutes) ? n.staticRoutes : [];
+                          return { ...n, staticRoutes: [...list, { prefix, mask, nextHop }], staticRouteDraft: undefined };
+                        }))}
+                        style={{ padding: "5px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 11, fontFamily: "monospace" }}
+                      />
+                      <button
+                        onClick={() => setNodes(prev => prev.map(n => n.id === selNodeObj.id ? { ...n, staticRoutes: [] } : n))}
+                        style={{ padding: "5px 8px", borderRadius: 4, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.1)", color: "#f87171", fontSize: 10, cursor: "pointer" }}
+                      >
+                        clear routes
+                      </button>
+                    </div>
+                  )}
+                  {isRoutingNode && (
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.7 }}>ACL Rules (one per line)</div>
+                      <textarea
+                        value={(selNodeObj.aclRulesText ?? (Array.isArray(selNodeObj.aclRules) ? selNodeObj.aclRules.map((r, i) => `${r.seq || (i + 1) * 10} ${r.dir || "in"} ${r.action || "permit"} ${r.protocol || "ip"} ${r.src || "any"} ${r.dst || "any"} ${r.port || "any"}`).join("\n") : ""))}
+                        onChange={(e) => setNodes((prev) => prev.map((n) => n.id === selNodeObj.id ? { ...n, aclRulesText: e.target.value } : n))}
+                        onBlur={(e) => {
+                          const parsed = String(e.target.value || "").split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+                            const parts = line.split(/\s+/);
+                            const seqMaybe = parseInt(parts[0], 10);
+                            const hasSeq = Number.isInteger(seqMaybe);
+                            const base = hasSeq ? 1 : 0;
+                            const seq = hasSeq ? seqMaybe : undefined;
+                            const dir = parts[base] === "in" || parts[base] === "out" ? parts[base] : "in";
+                            const off = parts[base] === "in" || parts[base] === "out" ? 1 : 0;
+                            const [action = "permit", protocol = "ip", src = "any", dst = "any", port = "any"] = parts.slice(base + off);
+                            return { seq, dir, action, protocol, src, dst, port };
+                          });
+                          setNodes((prev) => prev.map((n) => n.id === selNodeObj.id ? { ...n, aclRules: parsed, aclRulesText: undefined } : n));
+                        }}
+                        placeholder="10 in permit HTTPS any any 443"
+                        style={{ width: "100%", minHeight: 68, padding: "6px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 11, fontFamily: "monospace", resize: "vertical" }}
+                      />
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
                     <input placeholder={isL2Switch ? "Management IP" : "IP Address"} value={selNodeObj.ip} disabled={!showMgmtFields} onChange={e => setNodes(prev => prev.map(n => n.id === selNodeObj.id ? {...n, ip: e.target.value} : n))}
                       style={{ flex: 1, padding: "5px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 11, fontFamily: "monospace" }} />
-                    <select value={selNodeObj.vlan} disabled={!showMgmtFields} onChange={e => setNodes(prev => prev.map(n => n.id === selNodeObj.id ? {...n, vlan: parseInt(e.target.value)} : n))}
-                      style={{ padding: "5px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 11 }}>
-                      {vlanChoices.map(v => <option key={v} value={v}>VLAN {v}</option>)}
-                    </select>
+                    {!isEndpoint && (
+                      <select value={selNodeObj.vlan} disabled={!showMgmtFields} onChange={e => setNodes(prev => prev.map(n => n.id === selNodeObj.id ? {...n, vlan: parseInt(e.target.value)} : n))}
+                        style={{ padding: "5px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 11 }}>
+                        {vlanChoices.map(v => <option key={v} value={v}>VLAN {v}</option>)}
+                      </select>
+                    )}
                   </div>
+                  {isEndpoint && (
+                    <div style={{ marginTop: -2, marginBottom: 6, fontSize: 11, color: "#94a3b8", lineHeight: 1.45 }}>
+                      Host VLAN is inherited from the connected switch access port. Change VLAN on the switch, not on the host.
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: 6 }}>
                     <select value={selNodeObj.duplex} onChange={e => setNodes(prev => prev.map(n => n.id === selNodeObj.id ? {...n, duplex: e.target.value} : n))}
                       style={{ flex: 1, padding: "5px 8px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 11 }}>
@@ -2817,14 +3792,27 @@ function NetworkLabSection() {
                           {routerMode === "subinterfaces" && (
                           <input
                             placeholder="VLAN"
-                            value={iface.vlan}
+                            value={routerVlanDrafts[`${selNodeObj.id}:${ifaceIdx}`] ?? String(iface.vlan ?? 1)}
                             list={`router-vlan-options-${selNodeObj.id}`}
-                            onChange={e => setNodes(prev => prev.map(n => {
-                              if (n.id !== selNodeObj.id) return n;
-                              const list = normalizeRouterInterfaces(n);
-                              list[ifaceIdx] = { ...list[ifaceIdx], vlan: parseInt(e.target.value) || 1 };
-                              return { ...n, routerInterfaces: list };
-                            }))}
+                            onChange={e => setRouterVlanDrafts((prev) => ({ ...prev, [`${selNodeObj.id}:${ifaceIdx}`]: e.target.value }))}
+                            onBlur={e => {
+                              const key = `${selNodeObj.id}:${ifaceIdx}`;
+                              const nextVlan = parseInt(e.target.value, 10) || 1;
+                              setNodes(prev => prev.map(n => {
+                                if (n.id !== selNodeObj.id) return n;
+                                const list = normalizeRouterInterfaces(n);
+                                list[ifaceIdx] = { ...list[ifaceIdx], vlan: nextVlan };
+                                return { ...n, routerInterfaces: list };
+                              }));
+                              setRouterVlanDrafts((prev) => {
+                                const next = { ...prev };
+                                delete next[key];
+                                return next;
+                              });
+                            }}
+                            onKeyDown={e => {
+                              if (e.key === "Enter") e.currentTarget.blur();
+                            }}
                             style={{ padding: "5px 6px", borderRadius: 4, border: "1px solid rgba(255,255,255,0.1)", background: "rgba(0,0,0,0.3)", color: "#e2e8f0", fontSize: 10, fontFamily: "monospace" }}
                           />
                           )}
@@ -2957,6 +3945,71 @@ function NetworkLabSection() {
         </button>
         </div>
       </div>
+      {connectDraft && connectSrcNode && connectDstNode && (
+        <div className="network-lab-port-modal-backdrop" onClick={() => setConnectDraft(null)}>
+          <div className="network-lab-port-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="network-lab-port-modal-header">
+              <div>
+                <div className="network-lab-port-modal-title">Port Assignment</div>
+                <div className="network-lab-port-modal-sub">Select source and destination ports for {CABLE_OPTIONS.find((c) => c.type === cableType)?.label || cableType}.</div>
+              </div>
+              <button type="button" onClick={() => setConnectDraft(null)} className="network-lab-port-modal-close">Close</button>
+            </div>
+            <div className="network-lab-port-modal-grid">
+              {[{ node: connectSrcNode, key: "sourcePort", label: "Source" }, { node: connectDstNode, key: "destPort", label: "Destination" }].map((side) => {
+                const panel = getPortDiagram(side.node);
+                return (
+                  <div key={side.key} className="network-lab-port-device">
+                    <div className="network-lab-port-device-title">{side.label}: {side.node.icon} {side.node.label || side.node.type} ({panel.panel})</div>
+                    <div className="network-lab-port-device-panel">
+                      {panel.ports.map((p) => {
+                        const occupied = isPortOccupied(side.node.id, p.id);
+                        const cableOk = isPortCableCompatible(p, cableType);
+                        const disabled = occupied || !cableOk;
+                        const selected = connectDraft[side.key] === p.id;
+                        return (
+                          <button
+                            key={p.id}
+                            type="button"
+                            disabled={disabled}
+                            className={`network-lab-port-chip${selected ? " network-lab-port-chip--selected" : ""}${disabled ? " network-lab-port-chip--disabled" : ""}`}
+                            onClick={() => setConnectDraft((prev) => ({ ...prev, [side.key]: p.id }))}
+                            title={occupied ? "Port already in use" : (!cableOk ? `${cableType.toUpperCase()} incompatible with ${p.kind}` : `${p.id} (${p.kind})`)}
+                          >
+                            <span>{p.label || p.id}</span>
+                            <small>{p.kind}</small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="network-lab-port-modal-footer">
+              <div className="network-lab-port-modal-hint">
+                {!(connectDraft.sourcePort && connectDraft.destPort) ? "Choose both ports to create the link." : "Ready to create link."}
+              </div>
+              <button
+                type="button"
+                className="network-lab-port-modal-create"
+                disabled={!(connectDraft.sourcePort && connectDraft.destPort)}
+                onClick={() => {
+                  const srcPortObj = connectSrcPorts.find((p) => p.id === connectDraft.sourcePort);
+                  const dstPortObj = connectDstPorts.find((p) => p.id === connectDraft.destPort);
+                  if (!srcPortObj || !dstPortObj) return;
+                  if (isPortOccupied(connectDraft.fromId, srcPortObj.id) || isPortOccupied(connectDraft.toId, dstPortObj.id)) return;
+                  if (!isPortCableCompatible(srcPortObj, cableType) || !isPortCableCompatible(dstPortObj, cableType)) return;
+                  addLink(connectDraft.fromId, connectDraft.toId, srcPortObj.id, dstPortObj.id);
+                  setConnectDraft(null);
+                }}
+              >
+                Create Link
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2981,58 +4034,6 @@ const BYTE_COLORS = {
   dns_id: "#38bdf8", dns_flags: "#22d3ee", qcount: "#06b6d4", acount: "#0ea5e9",
   qname: "#a78bfa", qtype: "#c084fc", rdata: "#22c55e",
 };
-
-function FrameDiagram({ fields, title, highlight, compact }) {
-  return (
-    <div style={{ marginBottom: compact ? 8 : 14 }}>
-      {title && <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", marginBottom: 6, fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase", letterSpacing: 1 }}>{title}</div>}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 2, fontFamily: "'JetBrains Mono', monospace" }}>
-        {fields.map((f, i) => {
-          const isHl = highlight === f.key || highlight === "all";
-          return (
-            <div key={i} style={{
-              padding: compact ? "4px 6px" : "6px 10px",
-              background: isHl ? `${f.color}33` : `${f.color}15`,
-              border: `1.5px solid ${isHl ? f.color : f.color + "44"}`,
-              borderRadius: 6,
-              transition: "all 0.3s",
-              flex: f.flex || undefined,
-              minWidth: compact ? 60 : 80,
-              transform: isHl ? "scale(1.04)" : "scale(1)",
-              boxShadow: isHl ? `0 0 12px ${f.color}44` : "none",
-            }}>
-              <div style={{ fontSize: compact ? 8 : 9, color: f.color, opacity: 0.8, marginBottom: 2 }}>{f.label}</div>
-              <div style={{ fontSize: compact ? 10 : 11, color: "#e2e8f0", wordBreak: "break-all" }}>{f.value}</div>
-              {f.bits && <div style={{ fontSize: 8, color: "#475569", marginTop: 1 }}>{f.bits}</div>}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function TableView({ title, columns, rows, color, highlightRow }) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: color || "#94a3b8", marginBottom: 6, fontFamily: "'JetBrains Mono', monospace", textTransform: "uppercase", letterSpacing: 1 }}>{title}</div>
-      <div style={{ overflowX: "auto", borderRadius: 8, border: `1px solid ${color || "#94a3b8"}33` }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11, fontFamily: "'JetBrains Mono', monospace" }}>
-          <thead>
-            <tr>{columns.map((c,i) => <th key={i} style={{ padding: "8px 10px", borderBottom: `2px solid ${color || "#94a3b8"}44`, color: color || "#94a3b8", textAlign: "left", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>{c}</th>)}</tr>
-          </thead>
-          <tbody>
-            {rows.map((row, ri) => (
-              <tr key={ri} style={{ background: highlightRow === ri ? `${color}18` : "transparent", borderBottom: "1px solid rgba(255,255,255,0.04)", transition: "all 0.3s" }}>
-                {row.map((cell, ci) => <td key={ci} style={{ padding: "7px 10px", color: highlightRow === ri ? "#e2e8f0" : "#94a3b8" }}>{cell}</td>)}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
 
 // ── Deep Dive Scenario Data ──
 

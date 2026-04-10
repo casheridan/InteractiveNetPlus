@@ -593,3 +593,140 @@ body,
     display: none;
   }
 }
+
+.network-lab-port-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(2, 6, 16, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.network-lab-port-modal {
+  width: min(980px, 96vw);
+  max-height: 90vh;
+  overflow: auto;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 229, 255, 0.24);
+  background: rgba(8, 12, 24, 0.98);
+  box-shadow: 0 18px 54px rgba(0, 0, 0, 0.7);
+  padding: 14px;
+}
+
+.network-lab-port-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.network-lab-port-modal-title {
+  color: #e2e8f0;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.network-lab-port-modal-sub {
+  color: #94a3b8;
+  font-size: 11px;
+  margin-top: 4px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.network-lab-port-modal-close,
+.network-lab-port-modal-create {
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.06);
+  color: #cbd5e1;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.network-lab-port-modal-create {
+  border-color: rgba(34, 197, 94, 0.4);
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ade80;
+}
+
+.network-lab-port-modal-create:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.network-lab-port-modal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.network-lab-port-device {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(3, 8, 18, 0.8);
+}
+
+.network-lab-port-device-title {
+  color: #cbd5e1;
+  font-size: 11px;
+  margin-bottom: 8px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
+.network-lab-port-device-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 6px;
+}
+
+.network-lab-port-chip {
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(148, 163, 184, 0.12);
+  color: #cbd5e1;
+  padding: 6px 7px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+}
+
+.network-lab-port-chip small {
+  color: #94a3b8;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.network-lab-port-chip--selected {
+  border-color: rgba(0, 229, 255, 0.62);
+  background: rgba(0, 229, 255, 0.2);
+}
+
+.network-lab-port-chip--disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.network-lab-port-modal-footer {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.network-lab-port-modal-hint {
+  color: #94a3b8;
+  font-size: 11px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}

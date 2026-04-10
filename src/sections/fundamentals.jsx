@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { APPLIANCES, OSI_LAYERS } from "../data/fundamentalsData";
 import { Badge, Card, InfoRow, Pill, SectionHeader } from "../components/primitives";
+import { DeepDiveContent, ExpandableDeepDive } from "../components/ExpandableDeepDive";
 
 export function OSISection() {
   const [sel, setSel] = useState(null);
@@ -74,7 +75,7 @@ export function AppliancesSection() {
       <SectionHeader icon="🔲" title="Network Appliances" subtitle="Click a device to see how it processes data, which layers it operates at, and its key features." />
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
         {APPLIANCES.map((a, i) => (
-          <Pill key={i} active={sel === i} onClick={() => setSel(i)} color="#00e5ff">
+          <Pill key={a.id} active={sel === i} onClick={() => setSel(i)} color="#00e5ff">
             {a.icon} {a.name}
           </Pill>
         ))}
@@ -91,6 +92,11 @@ export function AppliancesSection() {
               </Badge>
             ))}
           </div>
+          {dev.deepDive && (
+            <ExpandableDeepDive label="Deep dive — more detail, diagrams & links" accentColor="#00e5ff">
+              <DeepDiveContent deepDive={dev.deepDive} accentColor="#00e5ff" />
+            </ExpandableDeepDive>
+          )}
         </Card>
       )}
     </div>
